@@ -1,0 +1,11 @@
+# Placeholder pipeline. There is no build yet — this job only confirms the
+# scaffold is present and gives the project a green pipeline to build on top
+# of. It is intentionally NOT a real build/deploy/quality gate; replace it
+# once vocabulary-hub.eona-x.eu has an actual publish pipeline.
+
+scaffold-check:
+  stage: test
+  image: alpine:latest
+  script:
+    - echo "vocabulary-hub.eona-x.eu scaffold present — no build implemented yet"
+    - test -f README.md
