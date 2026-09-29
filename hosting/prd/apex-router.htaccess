@@ -6,6 +6,9 @@
 # under voc/ are routed, so every other path still reaches WordPress.
 <IfModule mod_rewrite.c>
 RewriteEngine On
+# voc/ itself is not a public path (each voc/<slug>/.htaccess guards its own).
+RewriteCond %{ENV:REDIRECT_STATUS} ^$
+RewriteRule ^voc/?$ - [R=404,L]
 # /<slug> -> /<slug>/ here, before mod_dir would redirect to /voc/<slug>/.
 RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
 RewriteRule ^([^/]+)$ /$1/ [R=301,L]

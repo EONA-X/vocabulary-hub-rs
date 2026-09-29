@@ -56,7 +56,8 @@ docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <s
 
 ## Hosting and deploy
 
-Three layouts, all checked by `scripts/hosting-acceptance.sh` in CI (stock `httpd:2.4`):
+Where it is served — both layouts, plus the bare build output, are checked by
+`scripts/hosting-acceptance.sh` in CI (stock `httpd:2.4`):
 
 | Where | Web root | Deployed by | Mode |
 |---|---|---|---|

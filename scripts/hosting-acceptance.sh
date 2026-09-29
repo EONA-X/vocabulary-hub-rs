@@ -125,6 +125,8 @@ for sv in $versions; do
   got=$(hdr X-Robots-Tag "https://prd.test/$slug/$version")
   [ -z "$got" ] && ok "prd is indexable" || ko "prd sends $got"
 done
+got=$(status https://prd.test/voc/)
+[ "${got%% *}" = 404 ] && ok "/voc/ itself is not a public path" || ko "/voc/ -> $got (want 404)"
 got=$(curl -sk https://prd.test/some/wordpress/page)
 [ "$got" = "wordpress front controller" ] && ok "other paths still reach WordPress" || ko "WordPress path -> '$got'"
 
