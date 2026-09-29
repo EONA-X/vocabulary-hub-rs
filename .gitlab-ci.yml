@@ -104,7 +104,7 @@ deploy:dev-voc:
     - cp -r public deploy-tree && cp hosting/dev/.htaccess hosting/dev/robots.txt deploy-tree/
     - sh scripts/deploy-sftp.sh deploy-tree mirror
     - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
-    - curl -sf https://dev-voc.eona-x.eu/robots.txt | grep -qx 'Disallow: /'
+    - "curl -sf https://dev-voc.eona-x.eu/robots.txt | grep -qx 'Disallow: /'"
 
 deploy:prd-voc:
   extends: .deploy
