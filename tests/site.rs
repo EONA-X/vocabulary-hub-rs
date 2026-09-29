@@ -145,6 +145,20 @@ fn the_htaccess_negotiates_any_version_present_on_disk_and_points_the_bare_slug_
 }
 
 #[test]
+fn the_htaccess_answers_only_under_its_published_path_even_behind_a_router() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  write_site(out.path(), &published(src.path())).unwrap();
+
+  // On eona-x.eu the slug sits under voc/ behind the apex router; a direct
+  // /voc/odrl-profile/... request (no internal redirect yet) must not be a
+  // second public path for the same document.
+  let htaccess = fs::read_to_string(out.path().join("odrl-profile/.htaccess")).unwrap();
+  assert!(htaccess.contains("RewriteCond %{ENV:REDIRECT_STATUS} ^$\nRewriteCond %{REQUEST_URI} !^/odrl-profile(/|$)\nRewriteRule ^ - [R=404,L]"), "{htaccess}");
+}
+
+#[test]
 fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
