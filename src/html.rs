@@ -40,6 +40,7 @@ pub fn render(v: &Vocabulary) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} {version}</title>
+<link rel="canonical" href="{canonical}">
 <link rel="alternate" type="text/turtle" href="{version}.ttl">
 <link rel="alternate" type="application/ld+json" href="{version}.jsonld">
 <style>{CSS}</style>
@@ -56,6 +57,7 @@ pub fn render(v: &Vocabulary) -> String {
     version = esc(&v.version),
     version_info = esc(text(&idx, ns, OWL_VERSION_INFO).unwrap_or(&v.version)),
     ns_e = esc(ns),
+    canonical = esc(ns.trim_end_matches('#')),
   );
   for pred in [DCT_DESCRIPTION, RDFS_COMMENT] {
     if let Some(t) = text(&idx, ns, pred) {

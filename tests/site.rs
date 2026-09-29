@@ -152,5 +152,8 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
   write_site(out.path(), &published(src.path())).unwrap();
 
   let html = fs::read_to_string(out.path().join("odrl-profile/v0.0.1.html")).unwrap();
-  assert!(html.contains(r#"<link rel="canonical" href="https://eona-x.eu/odrl-profile/v0.0.1">"#), "{html}");
+  assert!(
+    html.contains(r#"<link rel="canonical" href="https://eona-x.eu/odrl-profile/v0.0.1">"#),
+    "{html}"
+  );
 }
