@@ -28,6 +28,12 @@ RewriteEngine On
 ",
   );
   let _ = writeln!(s, "RewriteBase /{slug}/");
+  // Behind eona-x.eu's apex router this directory is really voc/{slug}/; only
+  // requests routed there (an internal redirect) may reach it.
+  let _ = writeln!(
+    s,
+    "RewriteCond %{{ENV:REDIRECT_STATUS}} ^$\nRewriteCond %{{REQUEST_URI}} !^/{slug}(/|$)\nRewriteRule ^ - [R=404,L]"
+  );
   for (accept, ext) in [(r"application/(ld\+)?json", "jsonld"), ("text/turtle", "ttl"), ("", "html")] {
     let _ = writeln!(s, "\nRewriteCond %{{REQUEST_FILENAME}} !-f\nRewriteCond %{{REQUEST_FILENAME}}.ttl -f");
     if !accept.is_empty() {
