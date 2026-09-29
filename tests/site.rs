@@ -174,3 +174,16 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
     "{html}"
   );
 }
+
+#[test]
+fn a_build_that_publishes_nothing_still_produces_its_output_directory() {
+  let out = tempfile::tempdir().unwrap();
+  let site = out.path().join("public");
+
+  let written = write_site(&site, &[]).unwrap();
+
+  // Until upstream mints a vocabulary under eona-x.eu this is the normal
+  // case, and CI steps after the build expect the directory to exist.
+  assert!(written.is_empty());
+  assert!(site.is_dir());
+}
