@@ -1,11 +1,86 @@
-# Placeholder pipeline. There is no build yet — this job only confirms the
-# scaffold is present and gives the project a green pipeline to build on top
-# of. It is intentionally NOT a real build/deploy/quality gate; replace it
-# once vocabulary-hub.eona-x.eu has an actual publish pipeline.
+# gates -> build -> conneg. There is no deploy job yet: how the site reaches
+# the eona-x.eu static host is not decided in this repo. `public/` from `build`
+# is exactly the tree to upload to the web root, and scripts/check-conneg.sh is
+# the smoke test to run against https://eona-x.eu/ once it is there.
 
-scaffold-check:
-  stage: test
-  image: alpine:latest
+variables:
+  RUST_IMAGE: "rust:bookworm"
+  # content/ (content.vocabulary-hub.eona-x.eu) is itself a submodule host:
+  # the vocabularies live one level further down, in content/vocabularies.
+  GIT_SUBMODULE_STRATEGY: recursive
+  GIT_SUBMODULE_DEPTH: 1
+  CARGO_TERM_COLOR: always
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+stages:
+  - gates
+  - build
+  - conneg
+
+.rust:
+  image: $RUST_IMAGE
+  cache:
+    key:
+      files: [Cargo.lock]
+    paths: [.cargo/registry, .cargo/git, target]
+
+fmt:
+  extends: .rust
+  stage: gates
   script:
-    - echo "vocabulary-hub.eona-x.eu scaffold present — no build implemented yet"
-    - test -f README.md
+    - rustup component add rustfmt
+    - cargo fmt --check
+
+clippy:
+  extends: .rust
+  stage: gates
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets --locked -- -D warnings
+
+test:
+  extends: .rust
+  stage: gates
+  script:
+    - cargo test --locked
+
+build:
+  extends: .rust
+  stage: build
+  script:
+    - cargo run --release --locked -- content/vocabularies public
+  artifacts:
+    paths: [public]
+    expire_in: 1 week
+
+# The generated .htaccess, served by a stock Apache as the static host serves
+# it. Every published <slug>/<version>.ttl is checked; a build that publishes
+# nothing (no upstream vocabulary minted under eona-x.eu yet) checks nothing.
+conneg:
+  stage: conneg
+  image: httpd:2.4
+  needs: [build]
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  script:
+    - apt-get update -qq && apt-get install -qq -y curl >/dev/null
+    - conf=/usr/local/apache2/conf/httpd.conf
+    - sed -i -e 's/^#\(LoadModule rewrite_module\)/\1/' -e 's/AllowOverride None/AllowOverride All/' "$conf"
+    - rm -rf /usr/local/apache2/htdocs && cp -r public /usr/local/apache2/htdocs
+    - httpd -k start && until curl -s -o /dev/null http://localhost/; do sleep 0.2; done
+    - |
+      status=0
+      for ttl in public/*/*.ttl; do
+        [ -e "$ttl" ] || continue
+        slug=$(basename "$(dirname "$ttl")"); version=$(basename "$ttl" .ttl)
+        sh scripts/check-conneg.sh http://localhost/ "$slug" "$version" || status=1
+      done
+      exit $status

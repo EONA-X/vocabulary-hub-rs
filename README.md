@@ -19,13 +19,42 @@ mirroring the existing `developer.eona-x.eu` / `content.developer.eona-x.eu` spl
   the Vocabulary Hub. This project doesn't run those services or author vocabularies — it only
   publishes a subset of their output onto eona-x.eu.
 
-## Status
+## Build
 
-**Scaffold only — no build implementation yet.** There is no generator, no static site, no
-publish pipeline here yet; those are intentionally left for follow-up work (see the tracking
-issue backlog#677 and the ODRL-profile-specific backlog#654 /
-[eona-vocabulary-services#1](https://gitlab.eona-x.org/eona-x/semantic-hub/eona-vocabulary-services/-/issues/1)
-for what lands here first).
+`vocabulary-hub-build` (Rust, on [rdf-sitegen](https://github.com/ds-labs-org/ds-rdf-sitegen-rs))
+reads `content/vocabularies/eonax-*/ontology.ttl` — `content/` is the
+`content.vocabulary-hub.eona-x.eu` submodule, which pins `eona-vocabularies-reference` — and
+writes the tree to upload to the eona-x.eu web root:
+
+```
+public/<slug>/<version>.ttl      whole ontology document
+public/<slug>/<version>.jsonld   same graph
+public/<slug>/<version>.html     human page, one #anchor per term
+public/<slug>/.htaccess          Accept-header negotiation for this slug only
+```
+
+A vocabulary is published **only when its `owl:Ontology` IRI is
+`https://eona-x.eu/<slug>/<version>#`** (backlog#677), and the build fails if `<version>`
+disagrees with `owl:versionInfo`. Vocabularies still minted under `w3id.org/eonax/...` are
+listed as skipped: at the current pin that is all three, until
+[eona-vocabularies-reference#4](https://github.com/EONA-X/eona-vocabularies-reference/pull/4)
+merges and the pin is bumped.
+
+Negotiation (mod_rewrite, first match wins, `q`-values not weighed): `application/ld+json` or
+`application/json` → JSON-LD, `text/turtle` → Turtle, anything else including `*/*` → HTML.
+`<slug>/` redirects (302) to the latest version. The `.htaccess` sits in each slug directory,
+not at the root, because the root is shared with the rest of eona-x.eu.
+
+```sh
+git clone --recurse-submodules <this repo>
+cargo run -- content/vocabularies public
+scripts/serve-local.sh public                 # stock httpd:2.4 with AllowOverride All, :18088
+scripts/check-conneg.sh http://localhost:18088/ odrl-profile v0.0.1
+```
+
+CI runs fmt/clippy/tests, the build, then `check-conneg.sh` against `httpd:2.4` for every
+published version. **There is no deploy job yet**; `check-conneg.sh https://eona-x.eu/ …` is
+the post-deploy smoke test.
 
 ## Related
 
