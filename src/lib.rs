@@ -16,4 +16,6 @@ pub use discover::{Discovery, Skipped, Vocabulary, discover};
 /// `{SITE_BASE}{slug}/{version}#` (backlog#677's convention).
 pub const SITE_BASE: &str = "https://eona-x.eu/";
 
+mod htaccess;
+mod html;
 pub mod site;

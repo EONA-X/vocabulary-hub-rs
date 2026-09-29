@@ -49,8 +49,14 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   let mut written = write_site(out.path(), &published(src.path())).unwrap();
   written.sort();
 
-  let expected: Vec<PathBuf> =
-    ["odrl-profile/.htaccess", "odrl-profile/v0.0.1.html", "odrl-profile/v0.0.1.jsonld", "odrl-profile/v0.0.1.ttl"].map(PathBuf::from).into();
+  let expected: Vec<PathBuf> = [
+    "odrl-profile/.htaccess",
+    "odrl-profile/v0.0.1.html",
+    "odrl-profile/v0.0.1.jsonld",
+    "odrl-profile/v0.0.1.ttl",
+  ]
+  .map(PathBuf::from)
+  .into();
   assert_eq!(written, expected);
   for p in &expected {
     assert!(out.path().join(p).is_file(), "{} missing", p.display());
@@ -80,8 +86,10 @@ fn the_json_ld_is_the_same_graph() {
   write_site(out.path(), &vocabularies).unwrap();
 
   let jsonld = fs::read(out.path().join("odrl-profile/v0.0.1.jsonld")).unwrap();
-  let reparsed: Vec<Triple> =
-    oxjsonld::JsonLdParser::new().for_reader(jsonld.as_slice()).map(|q| Triple::from(q.unwrap())).collect();
+  let reparsed: Vec<Triple> = oxjsonld::JsonLdParser::new()
+    .for_reader(jsonld.as_slice())
+    .map(|q| Triple::from(q.unwrap()))
+    .collect();
   assert_eq!(triple_set(reparsed), triple_set(vocabularies[0].triples.clone()));
 }
 

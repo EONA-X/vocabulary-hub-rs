@@ -55,21 +55,33 @@ pub fn discover(vocabularies_root: &Path, site_base: &str) -> Result<Discovery, 
     .collect();
   dirs.sort();
 
-  let mut found = Discovery { published: Vec::new(), skipped: Vec::new() };
+  let mut found = Discovery {
+    published: Vec::new(),
+    skipped: Vec::new(),
+  };
   for dir_name in dirs {
     let path = vocabularies_root.join(&dir_name).join("ontology.ttl");
     if !path.is_file() {
-      found.skipped.push(Skipped { dir_name, reason: "no ontology.ttl".into() });
+      found.skipped.push(Skipped {
+        dir_name,
+        reason: "no ontology.ttl".into(),
+      });
       continue;
     }
     let (triples, prefixes) = parse_turtle(&path)?;
     let namespace = ontology_iri(&triples).map_err(|e| format!("{}: {e}", path.display()))?;
     let Some(rest) = namespace.strip_prefix(site_base) else {
-      found.skipped.push(Skipped { dir_name, reason: format!("namespace {namespace} is not under {site_base}") });
+      found.skipped.push(Skipped {
+        dir_name,
+        reason: format!("namespace {namespace} is not under {site_base}"),
+      });
       continue;
     };
     let (slug, version) = split_slug_version(rest).ok_or_else(|| {
-      format!("{}: namespace {namespace} is under {site_base} but is not {site_base}<slug>/<version>#", path.display())
+      format!(
+        "{}: namespace {namespace} is under {site_base} but is not {site_base}<slug>/<version>#",
+        path.display()
+      )
     })?;
     let version_info = literal(&triples, &namespace, OWL_VERSION_INFO);
     if version_info.map(|v| format!("v{v}")).as_deref() != Some(version) {
@@ -79,7 +91,14 @@ pub fn discover(vocabularies_root: &Path, site_base: &str) -> Result<Discovery, 
         version_info.unwrap_or("missing")
       ));
     }
-    found.published.push(Vocabulary { dir_name, slug: slug.into(), version: version.into(), namespace, triples, prefixes });
+    found.published.push(Vocabulary {
+      dir_name,
+      slug: slug.into(),
+      version: version.into(),
+      namespace,
+      triples,
+      prefixes,
+    });
   }
   Ok(found)
 }

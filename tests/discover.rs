@@ -46,7 +46,11 @@ fn a_vocabulary_still_minted_elsewhere_is_skipped_with_its_namespace_as_the_reas
   assert!(found.published.is_empty());
   assert_eq!(found.skipped.len(), 1);
   assert_eq!(found.skipped[0].dir_name, "eonax-credentials");
-  assert!(found.skipped[0].reason.contains("https://w3id.org/eonax/credentials/"), "{}", found.skipped[0].reason);
+  assert!(
+    found.skipped[0].reason.contains("https://w3id.org/eonax/credentials/"),
+    "{}",
+    found.skipped[0].reason
+  );
 }
 
 #[test]
