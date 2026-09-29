@@ -91,6 +91,8 @@ hosting:
     GIT_SUBMODULE_STRATEGY: none
   before_script:
     - apt-get update -qq && apt-get install -qq -y lftp openssh-client curl >/dev/null
+    # GitLab drops an empty public/ from the artifacts when nothing is published.
+    - mkdir -p public
 
 deploy:dev-voc:
   extends: .deploy

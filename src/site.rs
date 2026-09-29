@@ -17,6 +17,9 @@ use crate::{Vocabulary, htaccess, html};
 ///   out of the site root because eona-x.eu serves other things too, and a
 ///   root `.htaccess` would be shared with them.
 pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Vec<PathBuf>> {
+  // Exists even when nothing is published — the normal case until upstream
+  // mints a vocabulary under the site base.
+  std::fs::create_dir_all(out)?;
   let mut written = Vec::new();
   let mut versions_by_slug: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
 
