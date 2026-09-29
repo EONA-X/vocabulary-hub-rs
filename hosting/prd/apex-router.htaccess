@@ -1,0 +1,15 @@
+# BEGIN eona-x vocabulary hub
+# Insert at the TOP of the eona-x.eu web root's .htaccess, above
+# "# BEGIN WordPress" (WordPress rewrites its own block, never this one).
+# Vocabularies are deployed to voc/<slug>/ by an SFTP account confined to
+# voc/; this maps the published path /<slug>/... onto it. Only slugs that exist
+# under voc/ are routed, so every other path still reaches WordPress.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# /<slug> -> /<slug>/ here, before mod_dir would redirect to /voc/<slug>/.
+RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
+RewriteRule ^([^/]+)$ /$1/ [R=301,L]
+RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
+RewriteRule ^([^/]+)/(.*)$ voc/$1/$2 [L]
+</IfModule>
+# END eona-x vocabulary hub

@@ -6,3 +6,4 @@ build/
 .env
 /target
 /public
+/.acc-site

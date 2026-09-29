@@ -1,0 +1,8 @@
+# Not a real vocabulary. Built only by scripts/hosting-acceptance.sh so the
+# hosting layouts are exercised even while no upstream vocabulary is minted
+# under https://eona-x.eu/ yet. Never deployed.
+@prefix fx: <https://eona-x.eu/hosting-fixture/v1.0.0#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+fx: a owl:Ontology ; owl:versionInfo "1.0.0" ; rdfs:label "Hosting fixture"@en .
+fx:Thing a owl:Class ; rdfs:label "Thing"@en ; rdfs:isDefinedBy fx: .

@@ -8,6 +8,8 @@
 #   scripts/check-conneg.sh https://eona-x.eu/ odrl-profile v0.0.1
 set -eu
 base=${1%/}; slug=$2; version=$3
+# CURL_OPTS=-k for a self-signed test certificate.
+curl() { command curl ${CURL_OPTS:-} "$@"; }
 url="$base/$slug/$version"
 fail=0
 
