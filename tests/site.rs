@@ -126,7 +126,7 @@ fn the_html_links_its_machine_readable_twins_and_escapes_literals() {
 }
 
 #[test]
-fn the_htaccess_negotiates_only_its_own_slug_and_points_the_bare_slug_at_the_latest_version() {
+fn the_htaccess_negotiates_any_version_present_on_disk_and_points_the_bare_slug_at_the_latest() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
@@ -134,8 +134,23 @@ fn the_htaccess_negotiates_only_its_own_slug_and_points_the_bare_slug_at_the_lat
 
   let htaccess = fs::read_to_string(out.path().join("odrl-profile/.htaccess")).unwrap();
   assert!(htaccess.contains("RewriteBase /odrl-profile/"), "{htaccess}");
-  assert!(htaccess.contains(r"^(v0\.0\.1)$"), "{htaccess}");
+  // Upstream only keeps the latest version, so a later build will not know
+  // about v0.0.1 — yet its IRIs must keep resolving once deployed. The rules
+  // key on the files being there, never on a list of versions.
+  assert!(htaccess.contains("RewriteCond %{REQUEST_FILENAME}.ttl -f"), "{htaccess}");
+  assert!(!htaccess.contains(r"v0\.0\.1"), "{htaccess}");
   assert!(htaccess.contains("^$ v0.0.1 [R=302,L]"), "{htaccess}");
   assert!(htaccess.contains("AddType text/turtle .ttl"), "{htaccess}");
   assert!(htaccess.contains("AddType application/ld+json .jsonld"), "{htaccess}");
+}
+
+#[test]
+fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  write_site(out.path(), &published(src.path())).unwrap();
+
+  let html = fs::read_to_string(out.path().join("odrl-profile/v0.0.1.html")).unwrap();
+  assert!(html.contains(r#"<link rel="canonical" href="https://eona-x.eu/odrl-profile/v0.0.1">"#), "{html}");
 }
