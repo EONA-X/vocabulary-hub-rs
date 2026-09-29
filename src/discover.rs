@@ -19,7 +19,7 @@ pub struct Vocabulary {
   pub version: String,
   pub triples: Vec<Triple>,
   /// The source file's own `@prefix` table, reused when re-serializing.
-  pub prefixes: Vec<(String, String)>,
+  pub prefixes: PrefixTable,
 }
 
 /// A candidate directory that is deliberately not published, and why.
@@ -103,7 +103,9 @@ pub fn discover(vocabularies_root: &Path, site_base: &str) -> Result<Discovery, 
   Ok(found)
 }
 
-fn parse_turtle(path: &Path) -> Result<(Vec<Triple>, Vec<(String, String)>), String> {
+type PrefixTable = Vec<(String, String)>;
+
+fn parse_turtle(path: &Path) -> Result<(Vec<Triple>, PrefixTable), String> {
   let data = fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
   let mut parser = TurtleParser::new().for_reader(data.as_slice());
   let mut triples = Vec::new();
