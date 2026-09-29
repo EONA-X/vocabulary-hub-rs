@@ -15,3 +15,4 @@ oxrdf = "0.3.4"
 
 [dev-dependencies]
 tempfile = "3"
+oxjsonld = "0.2.6"
