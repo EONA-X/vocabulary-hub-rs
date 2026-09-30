@@ -4,10 +4,13 @@
 # ) and checks <site-dir> in the three layouts it is served from:
 #
 #   bare.test  the build output as the web root (what check-conneg.sh assumes)
-#   dev.test   + hosting/dev/ overlay: dev-voc.eona-x.eu's web root
-#   prd.test   a WordPress-like web root with hosting/prd/apex-router.htaccess
-#              on top and the build output under voc/: eona-x.eu's layout
+#   dev.test   dev-voc.eona-x.eu: a stand-in eona-x.eu dev site at the root,
+#              root .htaccess = hosting/dev/.htaccess + hosting/router.htaccess,
+#              hosting/dev/robots.txt, and the build output under voc/
+#   prd.test   eona-x.eu: a WordPress-like web root with hosting/router.htaccess
+#              above WordPress's block, and the build output under voc/
 #
+# dev and prd share every path; only the root .htaccess and robots.txt differ.
 # dev.test and prd.test are served over HTTPS (self-signed), as on OVH.
 set -eu
 site=$(cd "$1" && pwd)
@@ -21,10 +24,15 @@ apt-get update -qq >/dev/null && apt-get install -qq -y curl openssl >/dev/null
 # --- layouts -----------------------------------------------------------------
 rm -rf /srv/bare /srv/dev /srv/prd
 cp -r "$site" /srv/bare
-cp -r "$site" /srv/dev && cp "$here"/hosting/dev/.htaccess "$here"/hosting/dev/robots.txt /srv/dev/
+
+mkdir -p /srv/dev && cp -r "$site" /srv/dev/voc
+cat "$here"/hosting/dev/.htaccess "$here"/hosting/router.htaccess > /srv/dev/.htaccess
+cp "$here"/hosting/dev/robots.txt /srv/dev/
+printf 'eona-x.eu dev site\n' > /srv/dev/index.html
+
 mkdir -p /srv/prd && cp -r "$site" /srv/prd/voc
 printf 'wordpress front controller\n' > /srv/prd/index.php
-{ cat "$here"/hosting/prd/apex-router.htaccess; cat <<'WP'
+{ cat "$here"/hosting/router.htaccess; cat <<'WP'
 
 # BEGIN WordPress
 <IfModule mod_rewrite.c>
@@ -38,12 +46,15 @@ RewriteRule . /index.php [L]
 # END WordPress
 WP
 } > /srv/prd/.htaccess
+
 # A version an earlier build published and this build no longer knows about:
-# the deploy never deletes it, so it must still negotiate.
-for d in /srv/prd/voc/*/; do
-  ttl=$(ls "$d"*.ttl 2>/dev/null | head -1) || true
-  [ -n "$ttl" ] || continue
-  for ext in ttl jsonld html; do cp "${ttl%.ttl}.$ext" "${d}v0.0.0-earlier.$ext"; done
+# the prd deploy never deletes it, so it must still negotiate.
+for root in /srv/dev /srv/prd; do
+  for d in "$root"/voc/*/; do
+    ttl=$(ls "$d"*.ttl 2>/dev/null | head -1) || true
+    [ -n "$ttl" ] || continue
+    for ext in ttl jsonld html; do cp "${ttl%.ttl}.$ext" "${d}v0.0.0-earlier.$ext"; done
+  done
 done
 
 # --- httpd -------------------------------------------------------------------
@@ -91,6 +102,24 @@ hdr() { name=$1; shift; curl -sk -o /dev/null -D - "$@" | tr -d '\r' | grep -i "
 versions=$(cd "$site" && ls */*.ttl 2>/dev/null | sed 's/\.ttl$//') || true
 [ -n "$versions" ] || { echo "FAIL $site publishes nothing: nothing to check"; exit 1; }
 
+routed() { # <host> <slug> <version>: what dev and prd share
+  h=$1; slug=$2; version=$3
+  CURL_OPTS=-k sh "$here/scripts/check-conneg.sh" "https://$h/" "$slug" "$version" || fail=1
+  if out=$(CURL_OPTS=-k sh "$here/scripts/check-conneg.sh" "https://$h/" "$slug" v0.0.0-earlier); then
+    ok "an earlier, no longer built version still negotiates"
+  else
+    echo "$out"; ko "earlier version v0.0.0-earlier lost"
+  fi
+  got=$(status "https://$h/$slug")
+  [ "$got" = "301 https://$h/$slug/" ] && ok "/$slug -> $got" || ko "/$slug -> $got (want 301 to /$slug/)"
+  got=$(status "https://$h/$slug/")
+  case "$got" in "302 https://$h/$slug/v"*) ok "/$slug/ -> $got" ;; *) ko "/$slug/ -> $got (want 302 to /$slug/<version>, never /voc/)" ;; esac
+  got=$(status "https://$h/voc/$slug/$version.ttl")
+  [ "${got%% *}" = 404 ] && ok "/voc/$slug/ is not a public path" || ko "/voc/$slug/$version.ttl -> $got (want 404)"
+  got=$(status "https://$h/voc/")
+  [ "${got%% *}" = 404 ] && ok "/voc/ is not a public path" || ko "/voc/ -> $got (want 404)"
+}
+
 for sv in $versions; do
   slug=${sv%%/*}; version=${sv#*/}
   echo "== $slug/$version"
@@ -99,34 +128,27 @@ for sv in $versions; do
   sh "$here/scripts/check-conneg.sh" http://bare.test/ "$slug" "$version" || fail=1
 
   echo "-- dev"
-  CURL_OPTS=-k sh "$here/scripts/check-conneg.sh" https://dev.test/ "$slug" "$version" || fail=1
+  routed dev.test "$slug" "$version"
   got=$(status "http://dev.test/$slug/$version")
   [ "$got" = "301 https://dev.test/$slug/$version" ] && ok "http -> $got" || ko "http://dev.test/$slug/$version -> $got (want 301 to https)"
   got=$(hdr X-Robots-Tag -H 'Accept: text/turtle' "https://dev.test/$slug/$version")
   case "$got" in *noindex*) ok "$got" ;; *) ko "no X-Robots-Tag noindex on $slug/$version" ;; esac
   got=$(hdr Link "https://dev.test/$slug/$version")
   case "$got" in *"<https://eona-x.eu/$slug/$version>; rel=\"canonical\""*) ok "$got" ;; *) ko "canonical Link on $slug/$version: '$got'" ;; esac
-  got=$(curl -sk https://dev.test/robots.txt | grep -c '^Disallow: /$' || true)
-  [ "$got" = 1 ] && ok "robots.txt disallows everything" || ko "robots.txt does not disallow /"
 
   echo "-- prd"
-  CURL_OPTS=-k sh "$here/scripts/check-conneg.sh" https://prd.test/ "$slug" "$version" || fail=1
-  if out=$(CURL_OPTS=-k sh "$here/scripts/check-conneg.sh" https://prd.test/ "$slug" v0.0.0-earlier); then
-    ok "an earlier, no longer built version still negotiates"
-  else
-    echo "$out"; ko "earlier version v0.0.0-earlier lost"
-  fi
-  got=$(status "https://prd.test/$slug")
-  [ "$got" = "301 https://prd.test/$slug/" ] && ok "/$slug -> $got" || ko "/$slug -> $got (want 301 to /$slug/)"
-  got=$(status "https://prd.test/$slug/")
-  case "$got" in "302 https://prd.test/$slug/v"*) ok "/$slug/ -> $got" ;; *) ko "/$slug/ -> $got (want 302 to /$slug/<version>, never /voc/)" ;; esac
-  got=$(status "https://prd.test/voc/$slug/$version.ttl")
-  [ "${got%% *}" = 404 ] && ok "/voc/ is not a public path" || ko "/voc/$slug/$version.ttl -> $got (want 404)"
+  routed prd.test "$slug" "$version"
   got=$(hdr X-Robots-Tag "https://prd.test/$slug/$version")
   [ -z "$got" ] && ok "prd is indexable" || ko "prd sends $got"
 done
-got=$(status https://prd.test/voc/)
-[ "${got%% *}" = 404 ] && ok "/voc/ itself is not a public path" || ko "/voc/ -> $got (want 404)"
+
+echo "-- sites around the vocabularies"
+got=$(curl -sk https://dev.test/robots.txt | grep -c '^Disallow: /$' || true)
+[ "$got" = 1 ] && ok "dev robots.txt disallows everything" || ko "dev robots.txt does not disallow /"
+got=$(curl -sk https://dev.test/)
+[ "$got" = "eona-x.eu dev site" ] && ok "dev root still serves the eona-x.eu dev site" || ko "dev / -> '$got'"
+got=$(hdr Link https://dev.test/)
+case "$got" in *"<https://eona-x.eu/>; rel=\"canonical\""*) ok "dev site canonical: $got" ;; *) ko "dev / canonical Link: '$got'" ;; esac
 got=$(curl -sk https://prd.test/some/wordpress/page)
 [ "$got" = "wordpress front controller" ] && ok "other paths still reach WordPress" || ko "WordPress path -> '$got'"
 

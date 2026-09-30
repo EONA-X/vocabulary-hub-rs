@@ -1,7 +1,9 @@
-# Root .htaccess of a dev-*.eona-x.eu host (dev-voc, dev-www) — deployed with
-# the site by CI, never to eona-x.eu. A dev host is a preview, not the
-# publication: keep it out of search results and name its eona-x.eu twin as
-# canonical on every response, including the ones served from subdirectories.
+# First part of dev-voc.eona-x.eu's root .htaccess (the router block,
+# hosting/router.htaccess, follows it); installed by hand, never on eona-x.eu.
+# dev-voc mirrors eona-x.eu's paths for both the site and the vocabularies, so
+# it is a preview, not the publication: keep it out of search results and name
+# its eona-x.eu twin as canonical on every response, including the ones served
+# from subdirectories.
 
 RewriteEngine On
 # Subdirectory .htaccess files (one per vocabulary slug) carry their own
@@ -12,14 +14,14 @@ RewriteOptions InheritDownBefore
 RewriteCond %{SERVER_PORT} ^80$
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
-# Remember the path the client asked for before content negotiation serves
-# it from another file; after that internal redirect Apache exposes it as
-# REDIRECT_CANONICAL_PATH.
-RewriteCond %{ENV:REDIRECT_STATUS} ^$
-RewriteRule ^ - [E=CANONICAL_PATH:%{REQUEST_URI}]
+# The canonical path is the one in the client's own request line: unlike
+# REQUEST_URI it survives every internal redirect (the router to voc/, content
+# negotiation to a .ttl/.jsonld/.html, the directory index), so it is simply
+# re-read on each pass.
+RewriteCond %{THE_REQUEST} ^\S+\s(/[^?\s]*)
+RewriteRule ^ - [E=CANONICAL_PATH:%1]
 
 <IfModule mod_headers.c>
   Header always set X-Robots-Tag "noindex, nofollow"
   Header always set Link "<https://eona-x.eu%{CANONICAL_PATH}e>; rel=\"canonical\"" env=CANONICAL_PATH
-  Header always set Link "<https://eona-x.eu%{REDIRECT_CANONICAL_PATH}e>; rel=\"canonical\"" env=REDIRECT_CANONICAL_PATH
 </IfModule>

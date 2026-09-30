@@ -56,20 +56,27 @@ docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <s
 
 ## Hosting and deploy
 
-Where it is served — both layouts, plus the bare build output, are checked by
-`scripts/hosting-acceptance.sh` in CI (stock `httpd:2.4`):
+Two environments with the **same paths**; only the web root around `voc/` differs. Checked by
+`scripts/hosting-acceptance.sh` in CI (stock `httpd:2.4`), together with the bare build output:
 
-| Where | Web root | Deployed by | Mode |
-|---|---|---|---|
-| https://dev-voc.eona-x.eu/ | `dev-voc/` | `deploy:dev-voc`, every `main` pipeline | `mirror`, plus the `hosting/dev/` overlay: `robots.txt` disallowing everything, `X-Robots-Tag: noindex`, `Link: <https://eona-x.eu/…>; rel="canonical"`, HTTP → HTTPS |
-| https://eona-x.eu/&lt;slug&gt;/ | `voc/` inside the WordPress web root, routed by `hosting/prd/apex-router.htaccess` | `deploy:prd-voc`, manual, after dev | `additive`: a published version is never deleted |
+| GitLab environment | URL | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
+|---|---|---|---|---|
+| `dev` | https://dev-voc.eona-x.eu/&lt;slug&gt;/ | `dev-voc/voc` | the eona-x.eu dev build; root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
+| `prd` | https://eona-x.eu/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
 
-`scripts/deploy-sftp.sh` uploads with lftp over SFTP to an SFTP-only OVH account confined to the
-target folder, with the cluster's host key pinned; each deploy job ends with
-`scripts/smoke-live.sh` against the live URL.
+The dev root files give dev-voc `robots.txt` `Disallow: /`, `X-Robots-Tag: noindex`, a
+`Link: <https://eona-x.eu<requested path>>; rel="canonical"` on every response, and HTTP → HTTPS.
+Root files are installed by hand once per environment; this pipeline only ever writes a `voc/`
+folder.
 
-Accounts, domains, the one-time router install and the CI variables are set up by hand, step by
-step, per the **eona-x.eu OVH web hosting deployment guide** in
+`scripts/deploy-sftp.sh` uploads with lftp over SFTP to one shared SFTP-only OVH account, with
+the cluster's host key pinned. `OVH_SFTP_DIR`, scoped per GitLab environment, is the environment
+discriminant; it is required, must be a plain relative path, and must name a `voc` folder (a
+wrong `mirror` target would otherwise delete what the shared account can reach). Each deploy job
+ends with `scripts/smoke-live.sh` against the live URL.
+
+Accounts, domains, the root files and the CI variables are set up by hand, step by step, per the
+**eona-x.eu OVH web hosting deployment guide** in
 [`eona-architecture-decision-records`](https://gitlab.eona-x.org/eona-x/eona-architecture-decision-records)
 (`docs/eona-x-eu-ovh-web-hosting-deployment-guide.md`), which also records why (ADR
 `20260929-deploy-eona-x-eu-sites-to-ovh-web-hosting-over-sftp`).

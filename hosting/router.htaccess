@@ -1,0 +1,22 @@
+# BEGIN eona-x vocabulary hub
+# Installed once, by hand, in the web root of each environment:
+#   prd  eona-x.eu      at the TOP of <WP_ROOT>/.htaccess, above
+#                       "# BEGIN WordPress" (WordPress rewrites its own block,
+#                       never this one)
+#   dev  dev-voc.eona-x.eu  after hosting/dev/.htaccess, as dev-voc/.htaccess
+# Vocabularies are deployed to voc/<slug>/; this maps the published path
+# /<slug>/... onto it. Only slugs that exist under voc/ are routed, so every
+# other path still reaches the site (WordPress in prd, the eona-x.eu dev build
+# in dev).
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# voc/ itself is not a public path (each voc/<slug>/.htaccess guards its own).
+RewriteCond %{ENV:REDIRECT_STATUS} ^$
+RewriteRule ^voc/?$ - [R=404,L]
+# /<slug> -> /<slug>/ here, before mod_dir would redirect to /voc/<slug>/.
+RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
+RewriteRule ^([^/]+)$ /$1/ [R=301,L]
+RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
+RewriteRule ^([^/]+)/(.*)$ voc/$1/$2 [L]
+</IfModule>
+# END eona-x vocabulary hub

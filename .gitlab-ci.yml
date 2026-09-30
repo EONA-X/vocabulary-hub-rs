@@ -1,11 +1,12 @@
 # gates -> build -> hosting -> deploy.
 #
 # `public/` from `build` is the publication. `hosting` serves it in the three
-# layouts it will live in (bare, dev-*.eona-x.eu, eona-x.eu behind WordPress)
-# from a stock httpd:2.4. On main, `deploy:dev-voc` uploads it to
-# https://dev-voc.eona-x.eu/ (mirror, with the hosting/dev/ overlay), then
-# `deploy:prd-voc` — manual — adds it to eona-x.eu's voc/ folder (additive:
-# a published version is never deleted). Each deploy ends with the same
+# layouts it will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind WordPress)
+# from a stock httpd:2.4. On main, `deploy:dev` mirrors it into dev-voc's voc/
+# folder (https://dev-voc.eona-x.eu/<slug>/), then `deploy:prd` — manual —
+# adds it to eona-x.eu's voc/ folder (additive: a published version is never
+# deleted). One SFTP account serves both; OVH_SFTP_DIR, scoped per GitLab
+# environment, is what tells them apart. Each deploy ends with the same
 # content-negotiation check, against the live URL.
 #
 # Accounts, domains and the CI variables the deploy jobs read are set up by
@@ -93,26 +94,30 @@ hosting:
     - apt-get update -qq && apt-get install -qq -y lftp openssh-client curl >/dev/null
     # GitLab drops an empty public/ from the artifacts when nothing is published.
     - mkdir -p public
+    # OVH_SFTP_DIR is the only per-environment variable; this pipeline only
+    # ever writes a voc/ folder, whatever the shared account could reach.
+    - 'case "${OVH_SFTP_DIR:-}" in voc|*/voc) ;; *) echo "OVH_SFTP_DIR=${OVH_SFTP_DIR:-<unset>} is not a voc/ folder" >&2; exit 1 ;; esac'
 
-deploy:dev-voc:
+deploy:dev:
   extends: .deploy
   needs: [build, hosting]
   environment:
-    name: dev-voc
+    name: dev
     url: https://dev-voc.eona-x.eu/
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   script:
-    - cp -r public deploy-tree && cp hosting/dev/.htaccess hosting/dev/robots.txt deploy-tree/
-    - sh scripts/deploy-sftp.sh deploy-tree mirror
+    - sh scripts/deploy-sftp.sh public mirror
     - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
+    # The root .htaccess/robots.txt are installed by hand (deployment guide);
+    # fail loudly if dev-voc is ever indexable.
     - "curl -sf https://dev-voc.eona-x.eu/robots.txt | grep -qx 'Disallow: /'"
 
-deploy:prd-voc:
+deploy:prd:
   extends: .deploy
-  needs: [build, hosting, "deploy:dev-voc"]
+  needs: [build, hosting, "deploy:dev"]
   environment:
-    name: prd-voc
+    name: prd
     url: https://eona-x.eu/
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
