@@ -24,32 +24,41 @@ mirroring the existing `developer.eona-x.eu` / `content.developer.eona-x.eu` spl
 `vocabulary-hub-build` (Rust, on [rdf-sitegen](https://github.com/ds-labs-org/ds-rdf-sitegen-rs))
 reads `content/vocabularies/eonax-*/ontology.ttl` — `content/` is the
 `content.vocabulary-hub.eona-x.eu` submodule, which pins `eona-vocabularies-reference` — and
-writes the tree to upload to the eona-x.eu web root:
+writes the tree to upload to the web root's `voc/` folder:
 
 ```
-public/<slug>/<version>.ttl      whole ontology document
-public/<slug>/<version>.jsonld   same graph
-public/<slug>/<version>.html     human page, one #anchor per term
-public/<slug>/.htaccess          Accept-header negotiation for this slug only
+public/<asset-class>/<slug>/<version>.ttl      whole ontology / concept scheme
+public/<asset-class>/<slug>/<version>.jsonld   same graph
+public/<asset-class>/<slug>/<version>.html     human page, one #anchor per term
+public/<asset-class>/<slug>/.htaccess          Accept-header negotiation for this slug only
 ```
 
-A vocabulary is published **only when its `owl:Ontology` IRI is
-`https://eona-x.eu/<slug>/<version>#`** (backlog#677), and the build fails if `<version>`
-disagrees with `owl:versionInfo`. Vocabularies still minted under `w3id.org/eonax/...` are
-listed as skipped: at the current pin that is all three, until
-[eona-vocabularies-reference#4](https://github.com/EONA-X/eona-vocabularies-reference/pull/4)
-merges and the pin is bumped.
+**IRI convention: `https://eona-x.eu/<asset-class>/<slug>/<version>#<term>`**, where
+`<asset-class>` is a concept code of the EU
+[asset-classification](http://publications.europa.eu/resource/dataset/asset-classification)
+authority table — e.g. `https://eona-x.eu/c_89b4bdb7/odrl-profile/v0.0.1#GenericClaim`,
+`c_89b4bdb7` being *Formal ontology*. A vocabulary is published **only when its root resource**
+(`owl:Ontology`, or `skos:ConceptScheme` for code lists and thesauri) **has that IRI**, and the
+build fails if:
+
+- the path under `https://eona-x.eu/` is not `<asset-class>/<slug>/<version>#`;
+- `<asset-class>` is not a concept of the table (the codes are in `src/discover.rs`);
+- `metadata.ttl` declares a `dcat:type` from the table and `<asset-class>` is not that concept;
+- `<version>` is not `v` + `owl:versionInfo`.
+
+Vocabularies still minted under `w3id.org/eonax/...` are listed as skipped: at the current pin
+that is all three, until upstream moves them under `https://eona-x.eu/`.
 
 Negotiation (mod_rewrite, first match wins, `q`-values not weighed): `application/ld+json` or
 `application/json` → JSON-LD, `text/turtle` → Turtle, anything else including `*/*` → HTML.
-`<slug>/` redirects (302) to the latest version. The `.htaccess` sits in each slug directory,
+`<asset-class>/<slug>/` redirects (302) to the latest version. The `.htaccess` sits in each slug directory,
 not at the root, because the root is shared with the rest of eona-x.eu.
 
 ```sh
 git clone --recurse-submodules <this repo>
 cargo run -- content/vocabularies public
 scripts/serve-local.sh public                 # stock httpd:2.4 with AllowOverride All, :18088
-scripts/check-conneg.sh http://localhost:18088/ odrl-profile v0.0.1
+scripts/check-conneg.sh http://localhost:18088/ c_89b4bdb7/odrl-profile v0.0.1
 # all three hosting layouts, as CI runs them:
 docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <site-dir>
 ```
@@ -61,13 +70,13 @@ Two environments with the **same paths**; only the web root around `voc/` differ
 
 | GitLab environment | URL | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
 |---|---|---|---|---|
-| `dev` | https://dev-voc.eona-x.eu/&lt;slug&gt;/ | `dev-voc/voc` | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
-| `prd` | https://eona-x.eu/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
+| `dev` | https://dev-voc.eona-x.eu/&lt;asset-class&gt;/&lt;slug&gt;/ | `dev-voc/voc` | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
+| `prd` | https://eona-x.eu/&lt;asset-class&gt;/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
 
 The dev root files give dev-voc `robots.txt` `Disallow: /`, `X-Robots-Tag: noindex`, HTTP →
 HTTPS, and on every response a `rel="canonical"` Link to its production twin:
-`https://eona-x.eu<path>` under a vocabulary slug, `https://vocabulary.eona-x.eu<path>` elsewhere
-(the Hub UI). The Hub UI must therefore never use a vocabulary slug as a top-level path.
+`https://eona-x.eu<path>` under an asset-class code (`/c_xxxxxxxx/…`), `https://vocabulary.eona-x.eu<path>`
+elsewhere (the Hub UI). The Hub UI must therefore never use a top-level path of that shape.
 Root files are installed by hand once per environment; this pipeline only ever writes a `voc/`
 folder.
 

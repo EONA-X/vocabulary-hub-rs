@@ -8,12 +8,12 @@ use crate::{Vocabulary, htaccess, html};
 /// Writes every published representation of `vocabularies` under `out`,
 /// returning the written paths relative to `out`:
 ///
-/// - `{slug}/{version}.ttl` and `.jsonld` — the whole ontology document.
-///   Terms are hash IRIs (`{slug}/{version}#Term`), so the client strips the
+/// - `{asset-class}/{slug}/{version}.ttl` and `.jsonld` — the whole ontology document.
+///   Terms are hash IRIs (`{asset-class}/{slug}/{version}#Term`), so the client strips the
 ///   fragment before it asks and one document answers for every term.
-/// - `{slug}/{version}.html` — the human page, one anchor per term, so the
+/// - `{asset-class}/{slug}/{version}.html` — the human page, one anchor per term, so the
 ///   same `#Term` lands on that term's section in a browser.
-/// - `{slug}/.htaccess` — content negotiation for this slug only. It is kept
+/// - `{asset-class}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
 ///   out of the site root because eona-x.eu serves other things too, and a
 ///   root `.htaccess` would be shared with them.
 pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Vec<PathBuf>> {
@@ -21,12 +21,12 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
   // mints a vocabulary under the site base.
   std::fs::create_dir_all(out)?;
   let mut written = Vec::new();
-  let mut versions_by_slug: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+  let mut versions_by_slug: BTreeMap<String, Vec<&str>> = BTreeMap::new();
 
   for v in vocabularies {
     let prefix_refs: Vec<(&str, &str)> = v.prefixes.iter().map(|(p, iri)| (p.as_str(), iri.as_str())).collect();
     let prefixes = Prefixes(&prefix_refs);
-    let base = PathBuf::from(&v.slug).join(&v.version);
+    let base = PathBuf::from(&v.kind).join(&v.slug).join(&v.version);
     for (ext, bytes) in [
       ("ttl", to_turtle(&v.triples, &prefixes)),
       ("jsonld", to_jsonld(&v.triples, &prefixes)),
@@ -37,12 +37,12 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
       write_if_changed(&out.join(&rel), &bytes)?;
       written.push(rel);
     }
-    versions_by_slug.entry(&v.slug).or_default().push(&v.version);
+    versions_by_slug.entry(format!("{}/{}", v.kind, v.slug)).or_default().push(&v.version);
   }
 
   for (slug, versions) in versions_by_slug {
-    let rel = PathBuf::from(slug).join(".htaccess");
-    write_if_changed(&out.join(&rel), htaccess::render(slug, &versions).as_bytes())?;
+    let rel = PathBuf::from(&slug).join(".htaccess");
+    write_if_changed(&out.join(&rel), htaccess::render(&slug, &versions).as_bytes())?;
     written.push(rel);
   }
   Ok(written)

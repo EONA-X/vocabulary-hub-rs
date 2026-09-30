@@ -5,7 +5,7 @@
 
 use std::fs;
 
-use vocabulary_hub_build::{ASSET_CLASSES, ASSET_CLASS_PATTERN};
+use vocabulary_hub_build::{ASSET_CLASS_PATTERN, ASSET_CLASSES};
 
 #[test]
 fn every_asset_classification_code_has_the_shape_the_hosting_files_match() {

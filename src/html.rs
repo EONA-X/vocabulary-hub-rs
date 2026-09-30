@@ -29,7 +29,7 @@ const TERM_NOTES: [(&str, &str); 6] = [
 pub fn render(v: &Vocabulary) -> String {
   let idx = Indices::build(&Ontology { triples: v.triples.clone() });
   let ns = v.namespace.as_str();
-  let title = text(&idx, ns, DCT_TITLE).or_else(|| text(&idx, ns, RDFS_LABEL)).unwrap_or(&v.slug);
+  let title = text(&idx, ns, DCT_TITLE).or_else(|| label(&idx, ns)).unwrap_or(&v.slug);
 
   let mut h = String::new();
   let _ = write!(

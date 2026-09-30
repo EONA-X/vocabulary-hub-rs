@@ -1,23 +1,26 @@
 # BEGIN eona-x vocabulary hub
 # Installed once, by hand, in the web root of each environment:
-#   prd  eona-x.eu      at the TOP of <WP_ROOT>/.htaccess, above
-#                       "# BEGIN WordPress" (WordPress rewrites its own block,
-#                       never this one)
+#   prd  eona-x.eu          at the TOP of <WP_ROOT>/.htaccess, above
+#                           "# BEGIN WordPress" (WordPress rewrites its own
+#                           block, never this one)
 #   dev  dev-voc.eona-x.eu  after hosting/dev/.htaccess, as dev-voc/.htaccess
-# Vocabularies are deployed to voc/<slug>/; this maps the published path
-# /<slug>/... onto it. Only slugs that exist under voc/ are routed, so every
-# other path still reaches the site around it (WordPress in prd, the Vocabulary
-# Hub UI dev build in dev) — which must therefore not use a vocabulary slug as a
-# top-level path.
+# Published IRIs are /<asset-class>/<slug>/<version>, <asset-class> an EU
+# asset-classification concept code (c_ + 8 hex digits, e.g. c_89b4bdb7 for a
+# Formal ontology). Their files are deployed to voc/<asset-class>/<slug>/; this
+# maps the published paths onto them. Every other path still reaches the site
+# around it (WordPress in prd, the Vocabulary Hub UI dev build in dev), which
+# must therefore never use a top-level path of that shape.
 <IfModule mod_rewrite.c>
 RewriteEngine On
-# voc/ itself is not a public path (each voc/<slug>/.htaccess guards its own).
+# voc/ is not a public path (each voc/<asset-class>/<slug>/.htaccess guards
+# its own subtree; this covers voc/ and voc/<asset-class>/).
 RewriteCond %{ENV:REDIRECT_STATUS} ^$
-RewriteRule ^voc/?$ - [R=404,L]
-# /<slug> -> /<slug>/ here, before mod_dir would redirect to /voc/<slug>/.
-RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
-RewriteRule ^([^/]+)$ /$1/ [R=301,L]
-RewriteCond %{DOCUMENT_ROOT}/voc/$1 -d
-RewriteRule ^([^/]+)/(.*)$ voc/$1/$2 [L]
+RewriteRule ^voc(/.*)?$ - [R=404,L]
+# /<asset-class>/: no index page (yet).
+RewriteRule ^c_[0-9a-f]{8}/?$ - [R=404,L]
+# /<asset-class>/<slug> -> /<asset-class>/<slug>/ here, before mod_dir would
+# redirect to /voc/<asset-class>/<slug>/.
+RewriteRule ^(c_[0-9a-f]{8}/[^/]+)$ /$1/ [R=301,L]
+RewriteRule ^(c_[0-9a-f]{8}/.+)$ voc/$1 [L]
 </IfModule>
 # END eona-x vocabulary hub

@@ -51,7 +51,7 @@ WP
 # A version an earlier build published and this build no longer knows about:
 # the prd deploy never deletes it, so it must still negotiate.
 for root in /srv/dev /srv/prd; do
-  for d in "$root"/voc/*/; do
+  for d in "$root"/voc/*/*/; do
     ttl=$(ls "$d"*.ttl 2>/dev/null | head -1) || true
     [ -n "$ttl" ] || continue
     for ext in ttl jsonld html; do cp "${ttl%.ttl}.$ext" "${d}v0.0.0-earlier.$ext"; done
@@ -100,7 +100,7 @@ until curl -s -o /dev/null http://bare.test/; do sleep 0.2; done
 status() { curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' "$@"; }
 hdr() { name=$1; shift; curl -sk -o /dev/null -D - "$@" | tr -d '\r' | grep -i "^$name:" || true; }
 
-versions=$(cd "$site" && ls */*.ttl 2>/dev/null | sed 's/\.ttl$//') || true
+versions=$(cd "$site" && ls */*/*.ttl 2>/dev/null | sed 's/\.ttl$//') || true
 [ -n "$versions" ] || { echo "FAIL $site publishes nothing: nothing to check"; exit 1; }
 
 routed() { # <host> <slug> <version>: what dev and prd share
@@ -119,10 +119,14 @@ routed() { # <host> <slug> <version>: what dev and prd share
   [ "${got%% *}" = 404 ] && ok "/voc/$slug/ is not a public path" || ko "/voc/$slug/$version.ttl -> $got (want 404)"
   got=$(status "https://$h/voc/")
   [ "${got%% *}" = 404 ] && ok "/voc/ is not a public path" || ko "/voc/ -> $got (want 404)"
+  got=$(status "https://$h/voc/${slug%%/*}/")
+  [ "${got%% *}" = 404 ] && ok "/voc/<asset-class>/ is not a public path" || ko "/voc/${slug%%/*}/ -> $got (want 404)"
+  got=$(status "https://$h/${slug%%/*}/")
+  [ "${got%% *}" = 404 ] && ok "/<asset-class>/ has no index (404)" || ko "/${slug%%/*}/ -> $got (want 404)"
 }
 
 for sv in $versions; do
-  slug=${sv%%/*}; version=${sv#*/}
+  slug=${sv%/*}; version=${sv##*/}   # slug = <asset-class>/<slug>
   echo "== $slug/$version"
 
   echo "-- bare"

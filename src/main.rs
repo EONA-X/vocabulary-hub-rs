@@ -26,7 +26,7 @@ fn main() -> ExitCode {
     println!("skip    {}: {}", s.dir_name, s.reason);
   }
   for v in &found.published {
-    println!("publish {} -> {SITE_BASE}{}/{}", v.dir_name, v.slug, v.version);
+    println!("publish {} -> {SITE_BASE}{}/{}/{}", v.dir_name, v.kind, v.slug, v.version);
   }
   match write_site(out, &found.published) {
     Ok(written) => {
