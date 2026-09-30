@@ -6,8 +6,9 @@
 #   dev  dev-voc.eona-x.eu  after hosting/dev/.htaccess, as dev-voc/.htaccess
 # Vocabularies are deployed to voc/<slug>/; this maps the published path
 # /<slug>/... onto it. Only slugs that exist under voc/ are routed, so every
-# other path still reaches the site (WordPress in prd, the eona-x.eu dev build
-# in dev).
+# other path still reaches the site around it (WordPress in prd, the Vocabulary
+# Hub UI dev build in dev) — which must therefore not use a vocabulary slug as a
+# top-level path.
 <IfModule mod_rewrite.c>
 RewriteEngine On
 # voc/ itself is not a public path (each voc/<slug>/.htaccess guards its own).

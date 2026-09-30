@@ -4,7 +4,7 @@
 # ) and checks <site-dir> in the three layouts it is served from:
 #
 #   bare.test  the build output as the web root (what check-conneg.sh assumes)
-#   dev.test   dev-voc.eona-x.eu: a stand-in eona-x.eu dev site at the root,
+#   dev.test   dev-voc.eona-x.eu: a stand-in Hub UI dev build at the root,
 #              root .htaccess = hosting/dev/.htaccess + hosting/router.htaccess,
 #              hosting/dev/robots.txt, and the build output under voc/
 #   prd.test   eona-x.eu: a WordPress-like web root with hosting/router.htaccess
@@ -28,7 +28,8 @@ cp -r "$site" /srv/bare
 mkdir -p /srv/dev && cp -r "$site" /srv/dev/voc
 cat "$here"/hosting/dev/.htaccess "$here"/hosting/router.htaccess > /srv/dev/.htaccess
 cp "$here"/hosting/dev/robots.txt /srv/dev/
-printf 'eona-x.eu dev site\n' > /srv/dev/index.html
+printf 'hub ui dev build\n' > /srv/dev/index.html
+mkdir -p /srv/dev/catalogue && printf 'hub ui catalogue\n' > /srv/dev/catalogue/index.html
 
 mkdir -p /srv/prd && cp -r "$site" /srv/prd/voc
 printf 'wordpress front controller\n' > /srv/prd/index.php
@@ -146,9 +147,11 @@ echo "-- sites around the vocabularies"
 got=$(curl -sk https://dev.test/robots.txt | grep -c '^Disallow: /$' || true)
 [ "$got" = 1 ] && ok "dev robots.txt disallows everything" || ko "dev robots.txt does not disallow /"
 got=$(curl -sk https://dev.test/)
-[ "$got" = "eona-x.eu dev site" ] && ok "dev root still serves the eona-x.eu dev site" || ko "dev / -> '$got'"
-got=$(hdr Link https://dev.test/)
-case "$got" in *"<https://eona-x.eu/>; rel=\"canonical\""*) ok "dev site canonical: $got" ;; *) ko "dev / canonical Link: '$got'" ;; esac
+[ "$got" = "hub ui dev build" ] && ok "dev root still serves the Hub UI dev build" || ko "dev / -> '$got'"
+for path in / /catalogue/; do
+  got=$(hdr Link "https://dev.test$path")
+  case "$got" in *"<https://vocabulary.eona-x.eu$path>; rel=\"canonical\""*) ok "Hub UI canonical: $got" ;; *) ko "dev $path canonical Link: '$got' (want vocabulary.eona-x.eu)" ;; esac
+done
 got=$(curl -sk https://prd.test/some/wordpress/page)
 [ "$got" = "wordpress front controller" ] && ok "other paths still reach WordPress" || ko "WordPress path -> '$got'"
 

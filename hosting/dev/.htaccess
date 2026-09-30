@@ -1,9 +1,10 @@
 # First part of dev-voc.eona-x.eu's root .htaccess (the router block,
-# hosting/router.htaccess, follows it); installed by hand, never on eona-x.eu.
-# dev-voc mirrors eona-x.eu's paths for both the site and the vocabularies, so
-# it is a preview, not the publication: keep it out of search results and name
-# its eona-x.eu twin as canonical on every response, including the ones served
-# from subdirectories.
+# hosting/router.htaccess, follows it); installed by hand, never in prd.
+# dev-voc previews two production hosts on one: the Vocabulary Hub UI
+# (https://vocabulary.eona-x.eu/) at its root, and the vocabularies
+# (https://eona-x.eu/<slug>/) under the same paths as on eona-x.eu. It is not a
+# publication: keep it out of search results and name the production twin of
+# every response as canonical, including responses served from subdirectories.
 
 RewriteEngine On
 # Subdirectory .htaccess files (one per vocabulary slug) carry their own
@@ -17,11 +18,16 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 # The canonical path is the one in the client's own request line: unlike
 # REQUEST_URI it survives every internal redirect (the router to voc/, content
 # negotiation to a .ttl/.jsonld/.html, the directory index), so it is simply
-# re-read on each pass.
+# re-read on each pass. Its host is the one that serves that path in prd:
+# eona-x.eu for a vocabulary slug (a folder under voc/, exactly the router's
+# test), vocabulary.eona-x.eu for everything else (the Hub UI).
 RewriteCond %{THE_REQUEST} ^\S+\s(/[^?\s]*)
-RewriteRule ^ - [E=CANONICAL_PATH:%1]
+RewriteRule ^ - [E=CANONICAL_PATH:%1,E=CANONICAL_HOST:vocabulary.eona-x.eu]
+RewriteCond %{ENV:CANONICAL_PATH} ^/([^/]+)
+RewriteCond %{DOCUMENT_ROOT}/voc/%1 -d
+RewriteRule ^ - [E=CANONICAL_HOST:eona-x.eu]
 
 <IfModule mod_headers.c>
   Header always set X-Robots-Tag "noindex, nofollow"
-  Header always set Link "<https://eona-x.eu%{CANONICAL_PATH}e>; rel=\"canonical\"" env=CANONICAL_PATH
+  Header always set Link "<https://%{CANONICAL_HOST}e%{CANONICAL_PATH}e>; rel=\"canonical\"" env=CANONICAL_PATH
 </IfModule>

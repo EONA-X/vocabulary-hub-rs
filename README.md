@@ -61,11 +61,13 @@ Two environments with the **same paths**; only the web root around `voc/` differ
 
 | GitLab environment | URL | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
 |---|---|---|---|---|
-| `dev` | https://dev-voc.eona-x.eu/&lt;slug&gt;/ | `dev-voc/voc` | the eona-x.eu dev build; root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
+| `dev` | https://dev-voc.eona-x.eu/&lt;slug&gt;/ | `dev-voc/voc` | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
 | `prd` | https://eona-x.eu/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
 
-The dev root files give dev-voc `robots.txt` `Disallow: /`, `X-Robots-Tag: noindex`, a
-`Link: <https://eona-x.eu<requested path>>; rel="canonical"` on every response, and HTTP → HTTPS.
+The dev root files give dev-voc `robots.txt` `Disallow: /`, `X-Robots-Tag: noindex`, HTTP →
+HTTPS, and on every response a `rel="canonical"` Link to its production twin:
+`https://eona-x.eu<path>` under a vocabulary slug, `https://vocabulary.eona-x.eu<path>` elsewhere
+(the Hub UI). The Hub UI must therefore never use a vocabulary slug as a top-level path.
 Root files are installed by hand once per environment; this pipeline only ever writes a `voc/`
 folder.
 
