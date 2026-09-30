@@ -12,9 +12,10 @@ pub mod discover;
 
 pub use discover::{Discovery, Skipped, Vocabulary, discover};
 
-/// Where the site is served. Every published ontology IRI must be
-/// `{SITE_BASE}{slug}/{version}#` (backlog#677's convention).
+/// Where the site is served.
 pub const SITE_BASE: &str = "https://eona-x.eu/";
+
+pub use discover::{ASSET_CLASS_PATTERN, ASSET_CLASSES};
 
 mod htaccess;
 mod html;

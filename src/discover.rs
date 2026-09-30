@@ -7,13 +7,19 @@ use oxttl::TurtleParser;
 const OWL_ONTOLOGY: &str = "http://www.w3.org/2002/07/owl#Ontology";
 const OWL_VERSION_INFO: &str = "http://www.w3.org/2002/07/owl#versionInfo";
 
+pub const ASSET_CLASSES: [&str; 0] = [];
+pub const ASSET_CLASS_PATTERN: &str = "";
+
 /// One publishable vocabulary version.
 pub struct Vocabulary {
   /// Source directory name in eona-vocabularies-reference, e.g. `eonax-odrl-profile`.
   pub dir_name: String,
   /// The ontology IRI, which is also the term namespace, e.g. `https://eona-x.eu/odrl-profile/v0.0.1#`.
   pub namespace: String,
-  /// First path segment under the site base, e.g. `odrl-profile`.
+  /// First path segment under the site base: an EU asset-classification
+  /// concept code, e.g. `c_89b4bdb7` (Formal ontology).
+  pub kind: String,
+  /// Second path segment, e.g. `odrl-profile`.
   pub slug: String,
   /// Second path segment, e.g. `v0.0.1`.
   pub version: String,
@@ -93,6 +99,7 @@ pub fn discover(vocabularies_root: &Path, site_base: &str) -> Result<Discovery, 
     }
     found.published.push(Vocabulary {
       dir_name,
+      kind: String::new(),
       slug: slug.into(),
       version: version.into(),
       namespace,
