@@ -12,6 +12,12 @@ publish = false
 rdf-sitegen = { git = "https://github.com/ds-labs-org/ds-rdf-sitegen-rs.git", rev = "ee86c1d14c182f696e3cb7bdb571910f32a9ad10" }
 oxttl = "0.2.4"
 oxrdf = "0.3.4"
+# The HTML representation is rendered with the EONA-X design system's own
+# components and stylesheets, server-side, to static files. Pinned to the
+# v0.8.0 release commit, like rdf-sitegen above.
+eona-ui-toolkit = { git = "https://github.com/EONA-X/eona-ui-toolkit.git", rev = "89941e7075cd7ed4654141ce3c64f07ca9089eca", features = ["ssr"] }
+yew = { version = "0.23", features = ["ssr"] }
+tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -41,6 +41,13 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
   }
 
   for (slug, versions) in versions_by_slug {
+    // The EONA-X UI toolkit's stylesheets, once per slug, shared by its versions'
+    // HTML pages (linked as `assets/<file>`).
+    for (file, css) in html::STYLESHEETS {
+      let rel = PathBuf::from(&slug).join("assets").join(file);
+      write_if_changed(&out.join(&rel), css.as_bytes())?;
+      written.push(rel);
+    }
     let rel = PathBuf::from(&slug).join(".htaccess");
     write_if_changed(&out.join(&rel), htaccess::render(&slug, &versions).as_bytes())?;
     written.push(rel);
