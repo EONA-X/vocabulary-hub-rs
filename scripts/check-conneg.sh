@@ -51,6 +51,15 @@ expect 'application/json' 'application/ld+json' jsonld
 expect 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' 'text/html' html
 expect '*/*' 'text/html' html
 
+# The HTML page's EONA-X UI toolkit stylesheets, next to it.
+for css in tokens components ontology; do
+  got=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$base/$slug/assets/$css.css")
+  case "$got" in
+    "200 text/css"*) ok "assets/$css.css -> $got" ;;
+    *) ko "assets/$css.css -> $got (want 200 text/css)" ;;
+  esac
+done
+
 vary=$(curl -s -o /dev/null -D - -H 'Accept: text/turtle' "$url" | tr -d '\r' | grep -i '^vary:' || true)
 case "$vary" in
   *[Aa]ccept*) ok "$vary" ;;

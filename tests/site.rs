@@ -212,8 +212,15 @@ fn the_html_page_is_styled_by_the_eona_x_ui_toolkit_stylesheets_shipped_next_to_
     ("components.css", eona_ui_toolkit::COMPONENTS_CSS),
     ("ontology.css", eona_ui_toolkit::ONTOLOGY_CSS),
   ] {
-    assert!(html.contains(&format!(r#"<link rel="stylesheet" href="assets/{file}">"#)), "{file} not linked:\n{html}");
-    assert_eq!(fs::read_to_string(out.path().join("vocabulary/odrl-profile/assets").join(file)).unwrap(), content, "{file}");
+    assert!(
+      html.contains(&format!(r#"<link rel="stylesheet" href="assets/{file}">"#)),
+      "{file} not linked:\n{html}"
+    );
+    assert_eq!(
+      fs::read_to_string(out.path().join("vocabulary/odrl-profile/assets").join(file)).unwrap(),
+      content,
+      "{file}"
+    );
   }
 }
 
@@ -248,8 +255,22 @@ fn terms_are_rendered_with_the_toolkit_ontology_components() {
   assert!(html.contains(r#"class="badge badge--default""#) && html.contains("odrl:LeftOperand"), "{html}");
   // OntoAnnotation for each annotation, with the literal's language as a badge.
   assert!(html.contains(r#"<dt class="annotation__label">Definition</dt>"#), "{html}");
-  assert!(html.contains(r#"<span class="annotation__text">Addresses a claim inside a credential.</span>"#), "{html}");
+  assert!(
+    html.contains(r#"<span class="annotation__text">Addresses a claim inside a credential.</span>"#),
+    "{html}"
+  );
   assert!(html.contains(">en</span>"), "{html}");
   // SimpleFooter closes the page.
   assert!(html.contains(r#"class="icons-footer""#), "{html}");
+}
+
+#[test]
+fn the_page_cancels_the_toolkit_space_reserved_for_the_portal_fixed_header() {
+  let out = tempfile::tempdir().unwrap();
+  let html = html_page(out.path());
+
+  // components.css reserves `html > body { padding-top }` for SiteHeader, a
+  // fixed bar this page does not use; left alone it opens a blank band.
+  assert!(eona_ui_toolkit::COMPONENTS_CSS.contains("html > body { padding-top:"));
+  assert!(html.contains("html>body{padding-top:0}"), "{html}");
 }
