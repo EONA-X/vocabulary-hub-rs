@@ -2,8 +2,10 @@
 # hosting/router.htaccess, follows it); assembled by scripts/dev-root.sh and
 # deployed by CI (deploy:dev), never in prd.
 # dev-voc previews two production hosts on one: the Vocabulary Hub UI
-# (https://vocabulary.eona-x.eu/) at its root, and the vocabularies
-# (https://eona-x.eu/<asset-type>/<slug>/) under the same paths as on eona-x.eu. It is not a
+# (https://vocabulary.eona-x.eu/) at its root, and the vocabularies of both
+# hosts (https://eona-x.eu/<asset-type>/<slug>/ for Eona-X-authored ones,
+# https://vocabulary.eona-x.eu/<asset-type>/<slug>/ for vendored standards)
+# under their production paths. It is not a
 # publication: keep it out of search results and name the production twin of
 # every response as canonical, including responses served from subdirectories.
 
@@ -20,12 +22,11 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 # REQUEST_URI it survives every internal redirect (the router to voc/, content
 # negotiation to a .ttl/.jsonld/.html, the directory index), so it is simply
 # re-read on each pass. Its host is the one that serves that path in prd:
-# eona-x.eu under an asset type (the router's own pattern),
-# vocabulary.eona-x.eu for everything else (the Hub UI).
+# vocabulary.eona-x.eu (the Hub UI) unless a vocabulary's own slug .htaccess,
+# whose rules run after these, names its host (eona-x.eu for Eona-X-authored
+# vocabularies, vocabulary.eona-x.eu for vendored standards).
 RewriteCond %{THE_REQUEST} ^\S+\s(/[^?\s]*)
 RewriteRule ^ - [E=CANONICAL_PATH:%1,E=CANONICAL_HOST:vocabulary.eona-x.eu]
-RewriteCond %{ENV:CANONICAL_PATH} ^/(ontology|shape|crosswalk|vocabulary|codelist)(/|$)
-RewriteRule ^ - [E=CANONICAL_HOST:eona-x.eu]
 
 <IfModule mod_headers.c>
   Header always set X-Robots-Tag "noindex, nofollow"

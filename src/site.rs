@@ -5,8 +5,9 @@ use rdf_sitegen::{Prefixes, to_jsonld, to_turtle, write_if_changed};
 
 use crate::{Vocabulary, htaccess, html};
 
-/// Writes every published representation of `vocabularies` under `out`,
-/// returning the written paths relative to `out`:
+/// Writes every published representation of `vocabularies` under `out`, one
+/// tree per production host (`eona-x.eu/`, `vocabulary.eona-x.eu/`), returning
+/// the written paths relative to `out`. In each `{host}/` tree:
 ///
 /// - `{asset-type}/{slug}/{version}.ttl` and `.jsonld` — the whole ontology document.
 ///   Terms are hash IRIs (`{asset-type}/{slug}/{version}#Term`), so the client strips the
@@ -21,12 +22,21 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
   // mints a vocabulary under the site base.
   std::fs::create_dir_all(out)?;
   let mut written = Vec::new();
-  let mut versions_by_slug: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+  // {asset-type}/{slug} -> (host, versions)
+  let mut versions_by_slug: BTreeMap<String, (&str, Vec<&str>)> = BTreeMap::new();
 
   for v in vocabularies {
+    let host = host(&v.base);
+    let slug = format!("{}/{}", v.kind, v.slug);
+    let entry = versions_by_slug.entry(slug.clone()).or_insert((host, Vec::new()));
+    if entry.0 != host {
+      // dev-voc serves both hosts' trees side by side: the paths would collide.
+      return Err(std::io::Error::other(format!("{slug} is published on both {} and {host}", entry.0)));
+    }
+    entry.1.push(&v.version);
     let prefix_refs: Vec<(&str, &str)> = v.prefixes.iter().map(|(p, iri)| (p.as_str(), iri.as_str())).collect();
     let prefixes = Prefixes(&prefix_refs);
-    let base = PathBuf::from(&v.kind).join(&v.slug).join(&v.version);
+    let base = PathBuf::from(host).join(&v.kind).join(&v.slug).join(&v.version);
     for (ext, bytes) in [
       ("ttl", to_turtle(&v.triples, &prefixes)),
       ("jsonld", to_jsonld(&v.triples, &prefixes)),
@@ -37,20 +47,25 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
       write_if_changed(&out.join(&rel), &bytes)?;
       written.push(rel);
     }
-    versions_by_slug.entry(format!("{}/{}", v.kind, v.slug)).or_default().push(&v.version);
   }
 
-  for (slug, versions) in versions_by_slug {
+  for (slug, (host, versions)) in versions_by_slug {
+    let dir = PathBuf::from(host).join(&slug);
     // The EONA-X UI toolkit's stylesheets, once per slug, shared by its versions'
     // HTML pages (linked as `assets/<file>`).
     for (file, css) in html::STYLESHEETS {
-      let rel = PathBuf::from(&slug).join("assets").join(file);
+      let rel = dir.join("assets").join(file);
       write_if_changed(&out.join(&rel), css.as_bytes())?;
       written.push(rel);
     }
-    let rel = PathBuf::from(&slug).join(".htaccess");
-    write_if_changed(&out.join(&rel), htaccess::render(&slug, &versions).as_bytes())?;
+    let rel = dir.join(".htaccess");
+    write_if_changed(&out.join(&rel), htaccess::render(host, &slug, &versions).as_bytes())?;
     written.push(rel);
   }
   Ok(written)
+}
+
+/// `https://vocabulary.eona-x.eu/` -> `vocabulary.eona-x.eu`
+fn host(base: &str) -> &str {
+  base.split_once("://").map_or(base, |(_, rest)| rest).trim_end_matches('/')
 }
