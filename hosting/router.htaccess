@@ -20,8 +20,10 @@ RewriteRule ^voc(/.*)?$ - [R=404,L]
 # /<asset-type>/: no index page (yet).
 RewriteRule ^(ontology|shape|crosswalk|vocabulary|codelist)/?$ - [R=404,L]
 # /<asset-type>/<slug> -> /<asset-type>/<slug>/ here, before mod_dir would
-# redirect to /voc/<asset-type>/<slug>/.
-RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/[^/]+)$ /$1/ [R=301,L]
+# redirect to /voc/<asset-type>/<slug>/. Absolute, on the request's own host:
+# with a relative target Apache builds the URL, and behind OVH's TLS front it
+# adds ":443".
+RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/[^/]+)$ https://%{HTTP_HOST}/$1/ [R=301,L]
 RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/.+)$ voc/$1 [L]
 </IfModule>
 # END eona-x vocabulary hub

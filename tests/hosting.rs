@@ -49,7 +49,10 @@ fn the_router_adds_the_trailing_slash_with_an_explicit_https_url() {
   // adds ":443" (observed on dev-voc.eona-x.eu).
   let router = fs::read_to_string("hosting/router.htaccess").unwrap();
   assert!(
-    router.contains(&format!("RewriteRule ^({}/[^/]+)$ https://%{{HTTP_HOST}}/$1/ [R=301,L]", asset_type_alternation())),
+    router.contains(&format!(
+      "RewriteRule ^({}/[^/]+)$ https://%{{HTTP_HOST}}/$1/ [R=301,L]",
+      asset_type_alternation()
+    )),
     "{router}"
   );
 }

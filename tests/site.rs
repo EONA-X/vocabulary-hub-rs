@@ -141,7 +141,10 @@ fn the_htaccess_negotiates_any_version_present_on_disk_and_points_the_bare_slug_
   assert!(!htaccess.contains(r"v0\.0\.1"), "{htaccess}");
   // Absolute, with the request's own host: a relative target lets Apache build
   // the URL itself, and behind OVH's TLS front it adds ":443".
-  assert!(htaccess.contains("RewriteRule ^$ https://%{HTTP_HOST}/vocabulary/odrl-profile/v0.0.1 [R=302,L]"), "{htaccess}");
+  assert!(
+    htaccess.contains("RewriteRule ^$ https://%{HTTP_HOST}/vocabulary/odrl-profile/v0.0.1 [R=302,L]"),
+    "{htaccess}"
+  );
   assert!(htaccess.contains("AddType text/turtle .ttl"), "{htaccess}");
   assert!(htaccess.contains("AddType application/ld+json .jsonld"), "{htaccess}");
 }
