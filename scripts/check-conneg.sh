@@ -1,23 +1,28 @@
 #!/usr/bin/env sh
 # Acceptance check for one published vocabulary version, against any base URL:
 # the acceptance layouts (scripts/hosting-acceptance.sh) before merging,
-# dev-voc.eona-x.eu / eona-x.eu after a deploy. Asserts what a client of the
-# hash IRI https://eona-x.eu/{asset-type}/{slug}/{version}#Term actually gets
-# from {base}: per Accept header, the status, the Content-Type AND a body of
+# dev-voc.eona-x.eu / eona-x.eu / vocabulary.eona-x.eu after a deploy. Asserts
+# what a client of the hash IRI {publication-base}{asset-type}/{slug}/{version}#Term
+# actually gets from {base}: per Accept header, the status, the Content-Type AND a body of
 # that format describing that namespace; and that the version-less paths
 # redirect to a version on the same host (no ":443" an Apache behind a TLS
 # front adds to URLs it builds itself).
 #
-#   scripts/check-conneg.sh <base-url> <asset-type>/<slug> <version>
+# {publication-base} is the production host minting the IRIs: https://eona-x.eu/
+# (the default) for Eona-X-authored vocabularies, https://vocabulary.eona-x.eu/
+# for vendored standards.
+#
+#   scripts/check-conneg.sh <base-url> <asset-type>/<slug> <version> [<publication-base>]
 #   scripts/check-conneg.sh https://eona-x.eu/ vocabulary/odrl-profile v0.0.1
+#   scripts/check-conneg.sh https://dev-voc.eona-x.eu/ ontology/netex v0.2.0 https://vocabulary.eona-x.eu/
 set -eu
-base=${1%/}; slug=$2; version=$3
+base=${1%/}; slug=$2; version=$3; publication=${4:-https://eona-x.eu/}; publication=${publication%/}
 # CURL_OPTS=-k for a self-signed test certificate.
 curl() { command curl ${CURL_OPTS:-} "$@"; }
 url="$base/$slug/$version"
 host=${base#*://}; host=${host%%/*}
-# The published IRIs are always on eona-x.eu, whichever host serves them.
-ns="https://eona-x.eu/$slug/$version#"
+# The published IRIs are on their production host, whichever host serves them.
+ns="$publication/$slug/$version#"
 body=$(mktemp); trap 'rm -f "$body"' EXIT
 fail=0
 ok() { echo "ok   $*"; }
@@ -39,8 +44,8 @@ expect() { # <accept> <expected content-type> <expected body: turtle|jsonld|html
         ok "Accept: $1 -> $got, a JSON-LD object with @context and $ns"
       else ko "Accept: $1 -> $got, but the body is not JSON-LD with @context and $ns: $(head -c 120 "$body")"; fi ;;
     html)
-      if grep -qi '^<!doctype html>' "$body" && grep -qF "<link rel=\"canonical\" href=\"https://eona-x.eu/$slug/$version\">" "$body"; then
-        ok "Accept: $1 -> $got, an HTML page with rel=canonical https://eona-x.eu/$slug/$version"
+      if grep -qi '^<!doctype html>' "$body" && grep -qF "<link rel=\"canonical\" href=\"$publication/$slug/$version\">" "$body"; then
+        ok "Accept: $1 -> $got, an HTML page with rel=canonical $publication/$slug/$version"
       else ko "Accept: $1 -> $got, but the body is not the HTML page: $(head -c 120 "$body")"; fi ;;
   esac
 }

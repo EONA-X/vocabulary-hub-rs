@@ -1,0 +1,6 @@
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix assettype: <http://publications.europa.eu/resource/authority/asset-classification/> .
+<> a dcat:Dataset ; dcat:type assettype:c_89b4bdb7 ; dcat:version "1.0.0" ;
+  dcterms:creator [ a foaf:Organization ; foaf:name "A standards body" ] .

@@ -25,5 +25,12 @@ RewriteRule ^(ontology|shape|crosswalk|vocabulary|codelist)/?$ - [R=404,L]
 # adds ":443".
 RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/[^/]+)$ https://%{HTTP_HOST}/$1/ [R=301,L]
 RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/.+)$ voc/$1 [L]
+# An asset-type path with nothing behind it in voc/ (a slug of the other host,
+# a typo) is a 404 of its own, not the surrounding site's page. A slug that
+# exists answers from its own .htaccess and never comes back here.
+RewriteCond %{ENV:REDIRECT_STATUS} !^$
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^voc/ - [R=404,L]
 </IfModule>
 # END eona-x vocabulary hub

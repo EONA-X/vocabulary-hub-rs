@@ -22,22 +22,30 @@ mirroring the existing `developer.eona-x.eu` / `content.developer.eona-x.eu` spl
 ## Build
 
 `vocabulary-hub-build` (Rust, on [rdf-sitegen](https://github.com/ds-labs-org/ds-rdf-sitegen-rs))
-reads `content/vocabularies/eonax-*/ontology.ttl` — `content/` is the
-`content.vocabulary-hub.eona-x.eu` submodule, which pins `eona-vocabularies-reference` — and
-writes the tree to upload to the web root's `voc/` folder:
+reads every `content/vocabularies/<slug>/v<version>/` — `content/` is the
+`content.vocabulary-hub.eona-x.eu` submodule, which pins `eona-vocabularies-reference` — with
+that repository's own publication rules (`content/vocabularies/tools/vocabulary-check`, the crate
+its quality gate runs), and writes one tree per production host, each uploaded to that host's
+`voc/` folder:
 
 ```
-public/<asset-type>/<slug>/<version>.ttl      whole ontology / concept scheme
-public/<asset-type>/<slug>/<version>.jsonld   same graph
-public/<asset-type>/<slug>/<version>.html     human page, one #anchor per term
-public/<asset-type>/<slug>/.htaccess          Accept-header negotiation for this slug only
+public/<host>/<asset-type>/<slug>/<version>.ttl      whole ontology / concept scheme
+public/<host>/<asset-type>/<slug>/<version>.jsonld   same graph
+public/<host>/<asset-type>/<slug>/<version>.html     human page, one #anchor per term
+public/<host>/<asset-type>/<slug>/.htaccess          Accept-header negotiation for this slug only
 ```
 
-**IRI convention: `https://eona-x.eu/<asset-type>/<slug>/<version>#<term>`**, e.g.
-`https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#GenericClaim`. `<asset-type>` is one of five
-names, each covering concepts of the EU
+**IRI convention: `https://<host>/<asset-type>/<slug>/<version>#<term>`**, e.g.
+`https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#GenericClaim`. `<host>` says who authored it:
+
+- `eona-x.eu`: vocabularies Eona-X authored;
+- `vocabulary.eona-x.eu`: Eona-X's RDF representations of someone else's standard (battery
+  pass, DPP, DATEX II, NeTEx), i.e. whose `metadata.ttl` names a `dcterms:creator` that is not a
+  `foaf:Person`.
+
+`<asset-type>` is one of five names, each covering concepts of the EU
 [asset-classification](http://publications.europa.eu/resource/dataset/asset-classification)
-authority table (`ASSET_TYPES` in `src/discover.rs`):
+authority table (`ASSET_TYPES` in the crate):
 
 | `<asset-type>` | EU asset-classification concepts it covers |
 |---|---|
@@ -50,13 +58,15 @@ authority table (`ASSET_TYPES` in `src/discover.rs`):
 A vocabulary is published **only when its root resource** (`owl:Ontology`, or
 `skos:ConceptScheme` for code lists and thesauri) **has that IRI**, and the build fails if:
 
-- the path under `https://eona-x.eu/` is not `<asset-type>/<slug>/<version>#`, or `<asset-type>`
+- the path under the host is not `<asset-type>/<slug>/<version>#`, or `<asset-type>`
   is not one of the five;
+- it is on the other host than its `dcterms:creator` says, or one `<asset-type>/<slug>` is on both;
 - `metadata.ttl` declares a `dcat:type` the asset type does not cover;
 - `<version>` is not `v` + `owl:versionInfo`.
 
-Vocabularies still minted under `w3id.org/eonax/...` are listed as skipped: at the current pin
-that is all three, until upstream moves them under `https://eona-x.eu/`.
+Everything else (standards used as they are, minted elsewhere; shapes graphs without a root of
+their own) is listed as skipped. Upstream's gate runs the same rules, so what it lets through
+always builds.
 
 Negotiation (mod_rewrite, first match wins, `q`-values not weighed): `application/ld+json` or
 `application/json` → JSON-LD, `text/turtle` → Turtle, anything else including `*/*` → HTML.
@@ -68,34 +78,41 @@ git clone --recurse-submodules <this repo>
 cargo run -- content/vocabularies public
 scripts/serve-local.sh public                 # stock httpd:2.4 with AllowOverride All, :18088
 scripts/check-conneg.sh http://localhost:18088/ vocabulary/odrl-profile v0.0.1
-# all three hosting layouts, as CI runs them:
+# every hosting layout, as CI runs them:
 docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <site-dir>
 ```
 
 ## Updating the content
 
-`content/` pins content.vocabulary-hub.eona-x.eu. To publish what is on its `main`, run the
-manual **`bump:content`** job of a `main` pipeline: it moves `content/` to that latest `main`,
-commits and pushes the bump if anything changed (listing the incoming commits), and the push
-starts the pipeline that rebuilds and redeploys dev. It pushes with the CI job token as the user
-who runs it, so it needs a Maintainer and the project's *CI/CD → Job token permissions → Allow
-Git push requests to the repository*.
+`content/` pins content.vocabulary-hub.eona-x.eu, which pins eona-vocabularies-reference. To
+publish what is on eona-vocabularies-reference `main`, run the manual **`bump`** job of a `main`
+pipeline: content.vocabulary-hub.eona-x.eu moves `vocabularies/` to that `main`, checks that
+upstream's required checks are green and runs the gate itself, then triggers `bump:content`
+here, which moves `content/` to the content repository's latest `main`. Each push starts the
+pipeline that rebuilds and redeploys dev. Pushes use the CI job token as the user who runs it, so
+it needs a Maintainer and, in both projects, *CI/CD → Job token permissions → Allow Git push
+requests to the repository*.
 
 ## Hosting and deploy
 
-Two environments with the **same paths**; only the web root around `voc/` differs. Checked by
-`scripts/hosting-acceptance.sh` in CI (stock `httpd:2.4`), together with the bare build output:
+Three environments with the **same paths**; only the web root around `voc/` differs. dev-voc
+previews both production hosts at once. Checked by `scripts/hosting-acceptance.sh` in CI (stock
+`httpd:2.4`), together with the bare build output:
 
-| GitLab environment | URL | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
-|---|---|---|---|---|
-| `dev` | https://dev-voc.eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
-| `prd` | https://eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
+| GitLab environment | URL | Tree | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
+|---|---|---|---|---|---|
+| `dev` | https://dev-voc.eona-x.eu/ | both, merged | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI dev build; root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
+| `prd` | https://eona-x.eu/ | `public/eona-x.eu` | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
+| `prd-vocabulary` | https://vocabulary.eona-x.eu/ | `public/vocabulary.eona-x.eu` | `voc` | the Vocabulary Hub UI; `hosting/router.htaccess` | `deploy:prd-vocabulary`, manual after dev, `additive` |
+
+The router answers 404 for an asset-type path with nothing behind it in `voc/` (a slug of the
+other host, a typo), so the surrounding site never answers for one.
 
 The dev root files give dev-voc `X-Robots-Tag: noindex, nofollow` on every response (with a `robots.txt` that *allows* crawling, so crawlers read it), HTTP →
-HTTPS, and on every response a `rel="canonical"` Link to its production twin:
-`https://eona-x.eu<path>` under an asset type (`/vocabulary/…`, `/ontology/…`, …),
-`https://vocabulary.eona-x.eu<path>` elsewhere (the Hub UI). The Hub UI must therefore never use
-one of the five asset-type names as a top-level path.
+HTTPS, and on every response a `rel="canonical"` Link to its production twin: on the host each
+vocabulary's own slug `.htaccess` names (`E=CANONICAL_HOST`), `https://vocabulary.eona-x.eu<path>`
+everywhere else (the Hub UI). The Hub UI must never use one of the five asset-type names as a
+top-level path.
 In dev, the root files are deployed by CI too (`scripts/dev-root.sh`, added without deleting
 anything, so the Hub UI build next to them is safe); in prd, the router block is installed once by
 hand above WordPress's. Each environment has its own SFTP account, rooted at its web root.
