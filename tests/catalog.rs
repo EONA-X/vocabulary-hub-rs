@@ -367,13 +367,13 @@ fn every_version_is_a_dcat_version_of_its_asset() {
 
   let alpha = node(&nodes, &asset);
   assert_eq!(ids(&alpha[&format!("{DCAT}hasVersion")]), [v200.clone(), v210.clone()]);
-  assert_eq!(ids(&alpha[&format!("{DCAT}hasCurrentVersion")]), [v210.clone()]);
+  assert_eq!(ids(&alpha[&format!("{DCAT}hasCurrentVersion")]), std::slice::from_ref(&v210));
 
   let latest = node(&nodes, &v210);
   assert_eq!(latest["@type"], json!([format!("{DCAT}Dataset")]));
   assert_eq!(latest[&format!("{DCAT}version")], json!([{"@value": "2.1.0"}]));
-  assert_eq!(ids(&latest[&format!("{DCT}isVersionOf")]), [asset.clone()]);
-  assert_eq!(ids(&latest[&format!("{DCAT}previousVersion")]), [v200.clone()]);
+  assert_eq!(ids(&latest[&format!("{DCT}isVersionOf")]), std::slice::from_ref(&asset));
+  assert_eq!(ids(&latest[&format!("{DCAT}previousVersion")]), std::slice::from_ref(&v200));
   assert_eq!(ids(&latest[&format!("{DCAT}distribution")]), ids(&alpha[&format!("{DCAT}distribution")]));
 
   let earlier = node(&nodes, &v200);
