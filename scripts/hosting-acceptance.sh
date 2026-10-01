@@ -150,8 +150,13 @@ for sv in $versions; do
 done
 
 echo "-- sites around the vocabularies"
-got=$(curl -sk https://dev.test/robots.txt | grep -c '^Disallow: /$' || true)
-[ "$got" = 1 ] && ok "dev robots.txt disallows everything" || ko "dev robots.txt does not disallow /"
+# Crawlers must be allowed to fetch dev pages, or they never see the noindex.
+got=$(curl -sk https://dev.test/robots.txt)
+case "$got" in *"Disallow: /"*) ko "dev robots.txt disallows crawling: the noindex header would never be read" ;; *"Allow: /"*) ok "dev robots.txt lets crawlers read the noindex" ;; *) ko "dev robots.txt: '$got'" ;; esac
+for path in / /robots.txt /does-not-exist; do
+  got=$(hdr X-Robots-Tag "https://dev.test$path")
+  case "$got" in *noindex*) ok "noindex on dev $path" ;; *) ko "no X-Robots-Tag noindex on dev $path" ;; esac
+done
 got=$(curl -sk https://dev.test/)
 [ "$got" = "hub ui dev build" ] && ok "dev root still serves the Hub UI dev build" || ko "dev / -> '$got'"
 for path in / /catalogue/; do
