@@ -3,11 +3,12 @@
 # `public/` from `build` is the publication. `hosting` serves it in the three
 # layouts it will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind WordPress)
 # from a stock httpd:2.4. On main, `deploy:dev` mirrors it into dev-voc's voc/
-# folder (https://dev-voc.eona-x.eu/<slug>/), then `deploy:prd` — manual —
-# adds it to eona-x.eu's voc/ folder (additive: a published version is never
-# deleted). One SFTP account serves both; OVH_SFTP_DIR, scoped per GitLab
-# environment, is what tells them apart. Each deploy ends with the same
-# content-negotiation check, against the live URL.
+# folder and adds dev-voc's root files (scripts/dev-root.sh), then
+# `deploy:prd` — manual — adds it to eona-x.eu's voc/ folder (additive: a
+# published version is never deleted). Each environment has its own SFTP
+# account, rooted at its web root; OVH_SFTP_USER/PASSWORD/DIR are scoped per
+# GitLab environment. Each deploy ends with the same content-negotiation
+# check, against the live URL.
 #
 # Accounts, domains and the CI variables the deploy jobs read are set up by
 # hand once, per the eona-x.eu OVH web hosting deployment guide in
@@ -94,8 +95,7 @@ hosting:
     - apt-get update -qq && apt-get install -qq -y lftp openssh-client curl >/dev/null
     # GitLab drops an empty public/ from the artifacts when nothing is published.
     - mkdir -p public
-    # OVH_SFTP_DIR is the only per-environment variable; this pipeline only
-    # ever writes a voc/ folder, whatever the shared account could reach.
+    # This pipeline's own publication only ever goes to a voc/ folder.
     - 'case "${OVH_SFTP_DIR:-}" in voc|*/voc) ;; *) echo "OVH_SFTP_DIR=${OVH_SFTP_DIR:-<unset>} is not a voc/ folder" >&2; exit 1 ;; esac'
 
 deploy:dev:
@@ -108,9 +108,11 @@ deploy:dev:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   script:
     - sh scripts/deploy-sftp.sh public mirror
+    # Then the web root's own files (dev overlay + router, robots.txt), added
+    # next to voc/ and the Hub UI build without deleting anything there.
+    - sh scripts/dev-root.sh dev-root
+    - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh dev-root additive
     - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
-    # The root .htaccess/robots.txt are installed by hand (deployment guide);
-    # fail loudly if dev-voc is ever indexable.
     - "curl -sf https://dev-voc.eona-x.eu/robots.txt | grep -qx 'Disallow: /'"
 
 deploy:prd:

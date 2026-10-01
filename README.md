@@ -79,7 +79,7 @@ Two environments with the **same paths**; only the web root around `voc/` differ
 
 | GitLab environment | URL | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
 |---|---|---|---|---|
-| `dev` | https://dev-voc.eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `dev-voc/voc` | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
+| `dev` | https://dev-voc.eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
 | `prd` | https://eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
 
 The dev root files give dev-voc `robots.txt` `Disallow: /`, `X-Robots-Tag: noindex`, HTTP →
@@ -87,13 +87,14 @@ HTTPS, and on every response a `rel="canonical"` Link to its production twin:
 `https://eona-x.eu<path>` under an asset type (`/vocabulary/…`, `/ontology/…`, …),
 `https://vocabulary.eona-x.eu<path>` elsewhere (the Hub UI). The Hub UI must therefore never use
 one of the five asset-type names as a top-level path.
-Root files are installed by hand once per environment; this pipeline only ever writes a `voc/`
-folder.
+In dev, the root files are deployed by CI too (`scripts/dev-root.sh`, added without deleting
+anything, so the Hub UI build next to them is safe); in prd, the router block is installed once by
+hand above WordPress's. Each environment has its own SFTP account, rooted at its web root.
 
-`scripts/deploy-sftp.sh` uploads with lftp over SFTP to one shared SFTP-only OVH account, with
-the cluster's host key pinned. `OVH_SFTP_DIR`, scoped per GitLab environment, is the environment
-discriminant; it is required, must be a plain relative path, and must name a `voc` folder (a
-wrong `mirror` target would otherwise delete what the shared account can reach). Each deploy job
+`scripts/deploy-sftp.sh` uploads with lftp over SFTP to an SFTP-only OVH account, with the
+cluster's host key pinned. `OVH_SFTP_USER`, `OVH_SFTP_PASSWORD` and `OVH_SFTP_DIR` are scoped per
+GitLab environment. `OVH_SFTP_DIR` is required, must be a plain relative path, and must name a
+`voc` folder; the account root (`.`) is accepted only for `additive` uploads, which never delete. Each deploy job
 ends with `scripts/smoke-live.sh` against the live URL.
 
 Accounts, domains, the root files and the CI variables are set up by hand, step by step, per the

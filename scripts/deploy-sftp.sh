@@ -9,17 +9,17 @@
 #
 # Environment (GitLab CI variables scoped to the deploy environment):
 #   OVH_SFTP_HOST        ssh.clusterNNN.hosting.ovh.net
-#   OVH_SFTP_USER        <main-login>-<suffix>, an SFTP-only user; one account
-#                        serves every environment
+#   OVH_SFTP_USER        <main-login>-<suffix>, an SFTP-only user whose root
+#                        folder is the environment's web root (dev: dev-voc/)
 #   OVH_SFTP_PASSWORD    masked, protected
 #   OVH_SSH_KNOWN_HOSTS  path to a known_hosts file (a GitLab "File" variable)
 #                        pinning the cluster's host key; no TOFU
-#   OVH_SFTP_DIR         REQUIRED, the environment discriminant: target
-#                        directory relative to the account's root folder, e.g.
-#                        dev-voc/voc (dev) or www/voc (prd). The shared account
-#                        can reach WordPress, so a missing or sloppy value is
-#                        refused rather than defaulted: `mirror` into the
-#                        wrong directory deletes whatever is there.
+#   OVH_SFTP_DIR         REQUIRED target directory, relative to the account's
+#                        root folder, e.g. voc. A missing or sloppy value is
+#                        refused rather than defaulted: `mirror` into the wrong
+#                        directory deletes whatever is there. The root itself
+#                        (`.`) is accepted only for `additive`, which never
+#                        deletes (the dev root files).
 set -eu
 tree=$1; mode=$2
 case "$mode" in
@@ -30,9 +30,13 @@ esac
 : "${OVH_SFTP_HOST:?}" "${OVH_SFTP_USER:?}" "${OVH_SFTP_PASSWORD:?}" "${OVH_SSH_KNOWN_HOSTS:?}"
 port=${OVH_SFTP_PORT:-22}
 dir=${OVH_SFTP_DIR:-}
-case "/$dir/" in
-  //|/./|*/../*|*/./*|//*) echo "OVH_SFTP_DIR='$dir' must be a relative path below the account root, without . or .. segments" >&2; exit 2 ;;
-esac
+if [ "$dir" = . ] && [ "$mode" = additive ]; then
+  : # the account root, add-only
+else
+  case "/$dir/" in
+    //|/./|*/../*|*/./*|//*) echo "OVH_SFTP_DIR='$dir' must be a relative path below the account root, without . or .. segments (the root itself only with additive)" >&2; exit 2 ;;
+  esac
+fi
 
 # The password reaches lftp through its environment, never its argv.
 export LFTP_PASSWORD="$OVH_SFTP_PASSWORD"

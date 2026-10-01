@@ -1,5 +1,6 @@
 # First part of dev-voc.eona-x.eu's root .htaccess (the router block,
-# hosting/router.htaccess, follows it); installed by hand, never in prd.
+# hosting/router.htaccess, follows it); assembled by scripts/dev-root.sh and
+# deployed by CI (deploy:dev), never in prd.
 # dev-voc previews two production hosts on one: the Vocabulary Hub UI
 # (https://vocabulary.eona-x.eu/) at its root, and the vocabularies
 # (https://eona-x.eu/<asset-type>/<slug>/) under the same paths as on eona-x.eu. It is not a

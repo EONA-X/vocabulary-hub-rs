@@ -26,8 +26,7 @@ rm -rf /srv/bare /srv/dev /srv/prd
 cp -r "$site" /srv/bare
 
 mkdir -p /srv/dev && cp -r "$site" /srv/dev/voc
-cat "$here"/hosting/dev/.htaccess "$here"/hosting/router.htaccess > /srv/dev/.htaccess
-cp "$here"/hosting/dev/robots.txt /srv/dev/
+sh "$here"/scripts/dev-root.sh /srv/dev
 printf 'hub ui dev build\n' > /srv/dev/index.html
 mkdir -p /srv/dev/catalogue && printf 'hub ui catalogue\n' > /srv/dev/catalogue/index.html
 
