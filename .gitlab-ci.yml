@@ -1,4 +1,4 @@
-# gates -> build -> hosting -> deploy.
+# bump (on demand) -> gates -> build -> hosting -> deploy.
 #
 # `public/` from `build` is the publication. `hosting` serves it in the three
 # layouts it will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind WordPress)
@@ -32,10 +32,44 @@ workflow:
     - if: '$CI_COMMIT_TAG'
 
 stages:
+  - bump
   - gates
   - build
   - hosting
   - deploy
+
+# On demand, on main: move content/ to content.vocabulary-hub.eona-x.eu's
+# latest main, and commit and push that if it changed. The push to main starts
+# a new pipeline, which builds from the new content and redeploys dev (prd stays
+# manual). Pushes with the CI job token as the user who runs the job, so only
+# someone allowed to push to the protected main (a Maintainer) can complete it;
+# requires "Allow Git push requests to the repository" in this project's
+# CI/CD job token settings.
+bump:content:
+  stage: bump
+  image: alpine:3.20
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  script:
+    - apk add --no-cache git >/dev/null
+    - content_url="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/eona-x/semantic-hub/content.vocabulary-hub.eona-x.eu.git"
+    - git -c "submodule.content.url=$content_url" submodule update --init content
+    - git -C content fetch -q "$content_url" main
+    - old=$(git rev-parse HEAD:content)
+    - new=$(git -C content rev-parse FETCH_HEAD)
+    - 'if [ "$old" = "$new" ]; then echo "content is already at the latest main ($old)"; exit 0; fi'
+    - git -C content checkout -q "$new"
+    - incoming=$(git -C content log --oneline "$old..$new")
+    - echo "$incoming"
+    - git config user.name "$GITLAB_USER_NAME"
+    - git config user.email "$GITLAB_USER_EMAIL"
+    - git add content
+    - 'git commit -q -m "chore: bump content to $(git -C content rev-parse --short HEAD)" -m "Latest main of content.vocabulary-hub.eona-x.eu, from the on-demand bump:content job (pipeline $CI_PIPELINE_ID):" -m "$incoming"'
+    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "HEAD:$CI_DEFAULT_BRANCH"
 
 .rust:
   image: $RUST_IMAGE

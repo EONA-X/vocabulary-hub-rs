@@ -72,6 +72,15 @@ scripts/check-conneg.sh http://localhost:18088/ vocabulary/odrl-profile v0.0.1
 docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <site-dir>
 ```
 
+## Updating the content
+
+`content/` pins content.vocabulary-hub.eona-x.eu. To publish what is on its `main`, run the
+manual **`bump:content`** job of a `main` pipeline: it moves `content/` to that latest `main`,
+commits and pushes the bump if anything changed (listing the incoming commits), and the push
+starts the pipeline that rebuilds and redeploys dev. It pushes with the CI job token as the user
+who runs it, so it needs a Maintainer and the project's *CI/CD → Job token permissions → Allow
+Git push requests to the repository*.
+
 ## Hosting and deploy
 
 Two environments with the **same paths**; only the web root around `voc/` differs. Checked by
