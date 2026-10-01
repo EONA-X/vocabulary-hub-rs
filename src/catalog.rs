@@ -332,7 +332,7 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str) -
       g.iri(&asset, &format!("{DCT}conformsTo"), ns);
     }
     let landing = if latest.is_crosswalk() {
-      format!("{DOCS_BASE}/crosswalk?crosswalk={}", latest.slug)
+      format!("{DOCS_BASE}/crosswalks?crosswalk={}", latest.slug)
     } else {
       format!("{DOCS_BASE}/ontologies?ontology={}", latest.slug)
     };
