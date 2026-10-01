@@ -1,0 +1,3 @@
+# dev-*.eona-x.eu is a preview; the publication is https://eona-x.eu/
+User-agent: *
+Disallow: /

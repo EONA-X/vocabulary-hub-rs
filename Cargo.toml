@@ -1,0 +1,18 @@
+[package]
+name = "vocabulary-hub-build"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Builds the static, content-negotiated publication of Eona-X vocabularies on https://eona-x.eu/<slug>/<version> from content.vocabulary-hub.eona-x.eu."
+publish = false
+
+[dependencies]
+# Pinned to an exact commit: the served files are a function of this crate's
+# serializers, so "which rdf-sitegen built this site" must have one answer.
+rdf-sitegen = { git = "https://github.com/ds-labs-org/ds-rdf-sitegen-rs.git", rev = "ee86c1d14c182f696e3cb7bdb571910f32a9ad10" }
+oxttl = "0.2.4"
+oxrdf = "0.3.4"
+
+[dev-dependencies]
+tempfile = "3"
+oxjsonld = "0.2.6"

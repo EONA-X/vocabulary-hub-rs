@@ -1,11 +1,129 @@
-# Placeholder pipeline. There is no build yet — this job only confirms the
-# scaffold is present and gives the project a green pipeline to build on top
-# of. It is intentionally NOT a real build/deploy/quality gate; replace it
-# once vocabulary-hub.eona-x.eu has an actual publish pipeline.
+# gates -> build -> hosting -> deploy.
+#
+# `public/` from `build` is the publication. `hosting` serves it in the three
+# layouts it will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind WordPress)
+# from a stock httpd:2.4. On main, `deploy:dev` mirrors it into dev-voc's voc/
+# folder and adds dev-voc's root files (scripts/dev-root.sh), then
+# `deploy:prd` — manual — adds it to eona-x.eu's voc/ folder (additive: a
+# published version is never deleted). Each environment has its own SFTP
+# account, rooted at its web root; OVH_SFTP_USER/PASSWORD/DIR are scoped per
+# GitLab environment. Each deploy ends with the same content-negotiation
+# check, against the live URL.
+#
+# Accounts, domains and the CI variables the deploy jobs read are set up by
+# hand once, per the eona-x.eu OVH web hosting deployment guide in
+# eona-architecture-decision-records.
 
-scaffold-check:
-  stage: test
-  image: alpine:latest
+variables:
+  RUST_IMAGE: "rust:bookworm"
+  # content/ (content.vocabulary-hub.eona-x.eu) is itself a submodule host:
+  # the vocabularies live one level further down, in content/vocabularies.
+  GIT_SUBMODULE_STRATEGY: recursive
+  GIT_SUBMODULE_DEPTH: 1
+  CARGO_TERM_COLOR: always
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+stages:
+  - gates
+  - build
+  - hosting
+  - deploy
+
+.rust:
+  image: $RUST_IMAGE
+  cache:
+    key:
+      files: [Cargo.lock]
+    paths: [.cargo/registry, .cargo/git, target]
+
+fmt:
+  extends: .rust
+  stage: gates
   script:
-    - echo "vocabulary-hub.eona-x.eu scaffold present — no build implemented yet"
-    - test -f README.md
+    - rustup component add rustfmt
+    - cargo fmt --check
+
+clippy:
+  extends: .rust
+  stage: gates
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets --locked -- -D warnings
+
+test:
+  extends: .rust
+  stage: gates
+  script:
+    - cargo test --locked
+
+build:
+  extends: .rust
+  stage: build
+  script:
+    - cargo run --release --locked -- content/vocabularies public
+    # The acceptance tree adds a fixture vocabulary, so the hosting layouts
+    # are exercised even while nothing upstream is minted under eona-x.eu.
+    - cargo run --release --locked -- tests/fixtures/vocabularies acceptance-site
+    - cp -r public/. acceptance-site/
+  artifacts:
+    paths: [public, acceptance-site]
+    expire_in: 1 week
+
+hosting:
+  stage: hosting
+  image: httpd:2.4
+  needs: [build]
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  script:
+    - sh scripts/hosting-acceptance.sh acceptance-site
+
+.deploy:
+  stage: deploy
+  image: debian:bookworm-slim
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  before_script:
+    - apt-get update -qq && apt-get install -qq -y lftp openssh-client curl >/dev/null
+    # GitLab drops an empty public/ from the artifacts when nothing is published.
+    - mkdir -p public
+    # This pipeline's own publication only ever goes to a voc/ folder.
+    - 'case "${OVH_SFTP_DIR:-}" in voc|*/voc) ;; *) echo "OVH_SFTP_DIR=${OVH_SFTP_DIR:-<unset>} is not a voc/ folder" >&2; exit 1 ;; esac'
+
+deploy:dev:
+  extends: .deploy
+  needs: [build, hosting]
+  environment:
+    name: dev
+    url: https://dev-voc.eona-x.eu/
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - sh scripts/deploy-sftp.sh public mirror
+    # Then the web root's own files (dev overlay + router, robots.txt), added
+    # next to voc/ and the Hub UI build without deleting anything there.
+    - sh scripts/dev-root.sh dev-root
+    - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh dev-root additive
+    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
+    - "curl -sf https://dev-voc.eona-x.eu/robots.txt | grep -qx 'Disallow: /'"
+
+deploy:prd:
+  extends: .deploy
+  needs: [build, hosting, "deploy:dev"]
+  environment:
+    name: prd
+    url: https://eona-x.eu/
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  script:
+    - sh scripts/deploy-sftp.sh public additive
+    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
