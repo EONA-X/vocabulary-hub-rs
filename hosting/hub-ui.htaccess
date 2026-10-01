@@ -1,0 +1,23 @@
+# BEGIN eona-x vocabulary hub UI
+# Part of the web root's .htaccess wherever the Vocabulary Hub UI
+# (eona-vocabulary-ui) is served at the root, after the router block:
+#   dev  dev-voc.eona-x.eu      deployed by CI (scripts/dev-root.sh, deploy:dev)
+#   prd  vocabulary.eona-x.eu   installed by hand
+# The UI routes client-side (/ontologies?ontology=..., /crosswalk?crosswalk=...),
+# so a path with nothing behind it loads the app shell, which then shows the
+# page. Never for its data (docs/: a missing file is a 404 the UI reports) nor
+# for the vocabularies (voc/, reached through the router above).
+# The catalog data's downloads (docs/<slug>/<version>/*), by media type.
+AddType text/turtle .ttl
+AddType application/ld+json .jsonld
+AddType application/n-triples .nt
+AddType application/rdf+xml .owl
+AddCharset utf-8 .ttl .jsonld .nt .json
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/(docs|voc)/
+RewriteRule ^ index.html [L]
+</IfModule>
+# END eona-x vocabulary hub UI

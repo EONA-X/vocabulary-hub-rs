@@ -9,6 +9,9 @@
 # publication: keep it out of search results and name the production twin of
 # every response as canonical, including responses served from subdirectories.
 
+# No directory listings (OVH enables them by default).
+Options -Indexes
+
 RewriteEngine On
 # Subdirectory .htaccess files (one per vocabulary slug) carry their own
 # rewrite rules; without this they would silently drop the rules below.

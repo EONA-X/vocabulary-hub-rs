@@ -82,6 +82,31 @@ scripts/check-conneg.sh http://localhost:18088/ vocabulary/odrl-profile v0.0.1
 docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <site-dir>
 ```
 
+## Vocabulary Hub UI
+
+`ui/` pins [eona-vocabulary-ui](https://github.com/EONA-X/eona-vocabulary-ui), served at the
+root of https://vocabulary.eona-x.eu/ (dev: https://dev-voc.eona-x.eu/). Its catalog browser (`/`),
+ontology browser (`/ontologies?ontology=<slug>`) and crosswalk view
+(`/crosswalks?crosswalk=<slug>`) read the catalog data the build writes with a third argument:
+
+```
+docs/ontologies.json, docs/alignments.json         the UI's manifests (latest version of each asset)
+docs/<slug>/v<version>/{ontology|alignment}.{ttl,jsonld,owl,nt}   every version, four formats
+docs/catalog.jsonld, docs/catalog.ttl              DCAT catalog (with DCAT versioning) under
+                                                   https://vocabulary.eona-x.eu/catalog
+docs/assets/                                       logos
+```
+
+It covers every `<slug>/v<version>/` of eona-vocabularies-reference with a `metadata.ttl`,
+whichever host (if any) publishes it. CI's `ui` job runs the UI's own `build.sh` with that tree
+(`trunk`, pinned as in the UI repository). `hosting/hub-ui.htaccess`, after the router block, sends
+a path with nothing behind it to the app shell (the UI routes client-side), never `docs/` or `voc/`.
+
+```sh
+BUILT_AT=now cargo run -- content/vocabularies public docs
+(cd ui && ./build.sh ../docs /)               # ui/dist: the site root
+```
+
 ## Updating the content
 
 `content/` pins content.vocabulary-hub.eona-x.eu, which pins eona-vocabularies-reference. To
@@ -101,9 +126,9 @@ previews both production hosts at once. Checked by `scripts/hosting-acceptance.s
 
 | GitLab environment | URL | Tree | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
 |---|---|---|---|---|---|
-| `dev` | https://dev-voc.eona-x.eu/ | both, merged | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI dev build; root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
+| `dev` | https://dev-voc.eona-x.eu/ | both, merged | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI (`ui/dist`, deployed by CI); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess` + `hosting/hub-ui.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` (UI: `site`) |
 | `prd` | https://eona-x.eu/ | `public/eona-x.eu` | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
-| `prd-vocabulary` | https://vocabulary.eona-x.eu/ | `public/vocabulary.eona-x.eu` | `voc` | the Vocabulary Hub UI; `hosting/router.htaccess` | `deploy:prd-vocabulary`, manual after dev, `additive` |
+| `prd-vocabulary` | https://vocabulary.eona-x.eu/ | `public/vocabulary.eona-x.eu` | `voc` | the Vocabulary Hub UI (`ui/dist`, deployed by CI); `hosting/router.htaccess` + `hosting/hub-ui.htaccess` | `deploy:prd-vocabulary`, manual after dev, `additive` (UI: `site`) |
 
 The router answers 404 for an asset-type path with nothing behind it in `voc/` (a slug of the
 other host, a typo), so the surrounding site never answers for one.
@@ -120,7 +145,9 @@ hand above WordPress's. Each environment has its own SFTP account, rooted at its
 `scripts/deploy-sftp.sh` uploads with lftp over SFTP to an SFTP-only OVH account, with the
 cluster's host key pinned. `OVH_SFTP_USER`, `OVH_SFTP_PASSWORD` and `OVH_SFTP_DIR` are scoped per
 GitLab environment. `OVH_SFTP_DIR` is required, must be a plain relative path, and must name a
-`voc` folder; the account root (`.`) is accepted only for `additive` uploads, which never delete. Each deploy job
+`voc` folder; the account root (`.`) is accepted only for `additive` uploads, which never delete,
+and for `site`, which mirrors the Hub UI but never touches `voc/`, `.htaccess`, `robots.txt` or
+`.ovhconfig`. Each deploy job
 ends with `scripts/smoke-live.sh` against the live URL.
 
 Accounts, domains, the root files and the CI variables are set up by hand, step by step, per the
