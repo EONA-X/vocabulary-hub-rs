@@ -4,23 +4,23 @@
 #                           "# BEGIN WordPress" (WordPress rewrites its own
 #                           block, never this one)
 #   dev  dev-voc.eona-x.eu  after hosting/dev/.htaccess, as dev-voc/.htaccess
-# Published IRIs are /<asset-class>/<slug>/<version>, <asset-class> an EU
-# asset-classification concept code (c_ + 8 hex digits, e.g. c_89b4bdb7 for a
-# Formal ontology). Their files are deployed to voc/<asset-class>/<slug>/; this
-# maps the published paths onto them. Every other path still reaches the site
+# Published IRIs are /<asset-type>/<slug>/<version>, <asset-type> one of
+# ontology, shape, crosswalk, vocabulary, codelist (the build's ASSET_TYPES).
+# Their files are deployed to voc/<asset-type>/<slug>/; this maps the published
+# paths onto them. Every other path still reaches the site
 # around it (WordPress in prd, the Vocabulary Hub UI dev build in dev), which
-# must therefore never use a top-level path of that shape.
+# must therefore never use one of those five names as a top-level path.
 <IfModule mod_rewrite.c>
 RewriteEngine On
-# voc/ is not a public path (each voc/<asset-class>/<slug>/.htaccess guards
-# its own subtree; this covers voc/ and voc/<asset-class>/).
+# voc/ is not a public path (each voc/<asset-type>/<slug>/.htaccess guards
+# its own subtree; this covers voc/ and voc/<asset-type>/).
 RewriteCond %{ENV:REDIRECT_STATUS} ^$
 RewriteRule ^voc(/.*)?$ - [R=404,L]
-# /<asset-class>/: no index page (yet).
-RewriteRule ^c_[0-9a-f]{8}/?$ - [R=404,L]
-# /<asset-class>/<slug> -> /<asset-class>/<slug>/ here, before mod_dir would
-# redirect to /voc/<asset-class>/<slug>/.
-RewriteRule ^(c_[0-9a-f]{8}/[^/]+)$ /$1/ [R=301,L]
-RewriteRule ^(c_[0-9a-f]{8}/.+)$ voc/$1 [L]
+# /<asset-type>/: no index page (yet).
+RewriteRule ^(ontology|shape|crosswalk|vocabulary|codelist)/?$ - [R=404,L]
+# /<asset-type>/<slug> -> /<asset-type>/<slug>/ here, before mod_dir would
+# redirect to /voc/<asset-type>/<slug>/.
+RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/[^/]+)$ /$1/ [R=301,L]
+RewriteRule ^((ontology|shape|crosswalk|vocabulary|codelist)/.+)$ voc/$1 [L]
 </IfModule>
 # END eona-x vocabulary hub

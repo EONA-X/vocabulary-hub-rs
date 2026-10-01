@@ -8,12 +8,12 @@ use crate::{Vocabulary, htaccess, html};
 /// Writes every published representation of `vocabularies` under `out`,
 /// returning the written paths relative to `out`:
 ///
-/// - `{asset-class}/{slug}/{version}.ttl` and `.jsonld` — the whole ontology document.
-///   Terms are hash IRIs (`{asset-class}/{slug}/{version}#Term`), so the client strips the
+/// - `{asset-type}/{slug}/{version}.ttl` and `.jsonld` — the whole ontology document.
+///   Terms are hash IRIs (`{asset-type}/{slug}/{version}#Term`), so the client strips the
 ///   fragment before it asks and one document answers for every term.
-/// - `{asset-class}/{slug}/{version}.html` — the human page, one anchor per term, so the
+/// - `{asset-type}/{slug}/{version}.html` — the human page, one anchor per term, so the
 ///   same `#Term` lands on that term's section in a browser.
-/// - `{asset-class}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
+/// - `{asset-type}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
 ///   out of the site root because eona-x.eu serves other things too, and a
 ///   root `.htaccess` would be shared with them.
 pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Vec<PathBuf>> {

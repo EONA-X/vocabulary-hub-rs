@@ -9,57 +9,45 @@ const SKOS_CONCEPT_SCHEME: &str = "http://www.w3.org/2004/02/skos/core#ConceptSc
 const DCAT_TYPE: &str = "http://www.w3.org/ns/dcat#type";
 const OWL_VERSION_INFO: &str = "http://www.w3.org/2002/07/owl#versionInfo";
 
-/// The EU asset-classification authority table, whose concept codes are the
-/// first path segment of every published IRI.
+/// The EU asset-classification authority table, whose concepts an asset's
+/// `metadata.ttl` gives as `dcat:type`.
 pub const ASSET_CLASSIFICATION: &str = "http://publications.europa.eu/resource/authority/asset-classification/";
 
-/// Every concept of [`ASSET_CLASSIFICATION`] an Eona-X asset can be classified
-/// under (the table's `c_*` concepts, as retrieved on 2026-09-30).
-pub const ASSET_CLASSES: [&str; 34] = [
-  "c_1fb7be39", // Relational model
-  "c_230aaab7", // Presentation style sheet
-  "c_25e514f4", // Lexicon
-  "c_2db4690d", // Mind map
-  "c_32ffe82d", // Business Process Model and Notation
-  "c_35dcf03c", // Argument map
-  "c_3626c85a", // Subject headings
-  "c_366e3b24", // Base registry
-  "c_3948c2ed", // Markup schema
-  "c_5796a20b", // Dictionary
-  "c_5b130cc6", // Authority file
-  "c_638e1719", // Authoritative source
-  "c_64714767", // Terminology
-  "c_722cef3f", // Data model
-  "c_89b4bdb7", // Formal ontology
-  "c_8da81c02", // Classification
-  "c_a2df28a1", // Taxonomy
-  "c_a6822084", // System network
-  "c_a7773248", // Thesaurus
-  "c_b0bfba6e", // Categorisation
-  "c_b37963b3", // Application profile
-  "c_b81ceeea", // Entity-relationship model
-  "c_bba2bb35", // Alignment
-  "c_c0b5956c", // Frame-based model
-  "c_c2f98e5f", // Conceptual model
-  "c_c2ffe197", // Semantic network
-  "c_cdd11291", // Code list
-  "c_d3bf7907", // Synonym ring
-  "c_d5c26195", // Topic map
-  "c_d9dd5715", // Syntax encoding scheme
-  "c_e4cf092c", // Semantic model
-  "c_ebfb658e", // Glossary
-  "c_ecacbeba", // Folksonomy
-  "c_eed252ff", // Object-oriented model
+/// The asset types of the IRI convention — the first path segment of every
+/// published IRI, `{site_base}{asset-type}/{slug}/{version}#` — each with the
+/// [`ASSET_CLASSIFICATION`] concepts it covers. An asset whose `metadata.ttl`
+/// declares a `dcat:type` from that table must be published under the asset
+/// type covering it. No concept is covered twice: a Code list is a
+/// `codelist`, even though the EU table nests it under Terminology.
+pub const ASSET_TYPES: [(&str, &[&str]); 5] = [
+  ("ontology", &["c_89b4bdb7"]),            // Formal ontology
+  ("shape", &["c_b37963b3", "c_3948c2ed"]), // Application profile, Markup schema
+  ("crosswalk", &["c_bba2bb35"]),           // Alignment
+  (
+    "vocabulary",
+    &[
+      "c_64714767", // Terminology
+      "c_a7773248", // Thesaurus
+      "c_5796a20b", // Dictionary
+      "c_ebfb658e", // Glossary
+      "c_25e514f4", // Lexicon
+      "c_d3bf7907", // Synonym ring
+      "c_ecacbeba", // Folksonomy
+      "c_b0bfba6e", // Categorisation
+    ],
+  ),
+  ("codelist", &["c_cdd11291", "c_5b130cc6"]), // Code list, Authority file
 ];
 
-pub const ASSET_TYPES: [(&str, &[&str]); 0] = [];
+/// `(ontology|shape|crosswalk|vocabulary|codelist)`: the asset types as the
+/// Apache regex group the hand-installed router and dev overlay match.
 pub fn asset_type_alternation() -> String {
-  String::new()
+  format!("({})", asset_type_names().join("|"))
 }
 
-/// The shape shared by every code in [`ASSET_CLASSES`]: what the hand-installed
-/// router and dev overlay match, as an Apache regex.
-pub const ASSET_CLASS_PATTERN: &str = "c_[0-9a-f]{8}";
+fn asset_type_names() -> Vec<&'static str> {
+  ASSET_TYPES.iter().map(|(name, _)| *name).collect()
+}
 
 /// One publishable vocabulary version.
 pub struct Vocabulary {
@@ -67,8 +55,7 @@ pub struct Vocabulary {
   pub dir_name: String,
   /// The ontology IRI, which is also the term namespace, e.g. `https://eona-x.eu/odrl-profile/v0.0.1#`.
   pub namespace: String,
-  /// First path segment under the site base: an EU asset-classification
-  /// concept code, e.g. `c_89b4bdb7` (Formal ontology).
+  /// First path segment under the site base: one of [`ASSET_TYPES`], e.g. `vocabulary`.
   pub kind: String,
   /// Second path segment, e.g. `odrl-profile`.
   pub slug: String,
@@ -96,10 +83,10 @@ pub struct Discovery {
 /// Publishability is read off the source itself rather than configured here:
 /// a vocabulary is published exactly when its root resource — its
 /// `owl:Ontology`, or `skos:ConceptScheme` for a code list or thesaurus — has
-/// the IRI `{site_base}{asset-class}/{slug}/{version}#`, i.e. when upstream has
-/// frozen its namespace on the site. `{asset-class}` is a concept code of the
-/// EU asset-classification table, and, when the directory's `metadata.ttl`
-/// declares a `dcat:type` from that table, exactly that one.
+/// the IRI `{site_base}{asset-type}/{slug}/{version}#`, i.e. when upstream has
+/// frozen its namespace on the site. `{asset-type}` is one of [`ASSET_TYPES`]
+/// and, when the directory's `metadata.ttl` declares a `dcat:type` from the EU
+/// asset-classification table, the one covering it.
 /// Anything still minted elsewhere (`w3id.org/eonax/...`) is skipped, because
 /// serving it here would publish documents whose terms don't dereference here.
 ///
@@ -137,24 +124,28 @@ pub fn discover(vocabularies_root: &Path, site_base: &str) -> Result<Discovery, 
       });
       continue;
     };
-    let (asset_class, slug, version) = split_iri_path(rest).ok_or_else(|| {
+    let (asset_type, slug, version) = split_iri_path(rest).ok_or_else(|| {
       format!(
-        "{}: namespace {namespace} is under {site_base} but is not {site_base}<asset-class>/<slug>/<version>#",
+        "{}: namespace {namespace} is under {site_base} but is not {site_base}<asset-type>/<slug>/<version>#",
         path.display()
       )
     })?;
-    if !ASSET_CLASSES.contains(&asset_class) {
+    let Some((_, covered)) = ASSET_TYPES.iter().find(|(name, _)| *name == asset_type) else {
       return Err(format!(
-        "{}: namespace {namespace}: '{asset_class}' is not a concept of the EU asset-classification table <{ASSET_CLASSIFICATION}>",
-        path.display()
-      ));
-    }
-    let declared = declared_asset_classes(&vocabularies_root.join(&dir_name).join("metadata.ttl"))?;
-    if !declared.is_empty() && !declared.iter().any(|c| c == asset_class) {
-      return Err(format!(
-        "{}: namespace {namespace} is classified {asset_class} but metadata.ttl declares dcat:type {}",
+        "{}: namespace {namespace}: '{asset_type}' is not an asset type; expected one of {}",
         path.display(),
-        declared.join(", ")
+        asset_type_names().join(", ")
+      ));
+    };
+    let declared = declared_asset_classes(&vocabularies_root.join(&dir_name).join("metadata.ttl"))?;
+    if let Some(code) = declared.iter().find(|c| !covered.contains(&c.as_str())) {
+      let expected = ASSET_TYPES
+        .iter()
+        .find(|(_, codes)| codes.contains(&code.as_str()))
+        .map_or("no asset type", |(name, _)| *name);
+      return Err(format!(
+        "{}: namespace {namespace} is a {asset_type}, but metadata.ttl declares dcat:type {code} <{ASSET_CLASSIFICATION}{code}>, which is published as {expected}",
+        path.display()
       ));
     }
     let version_info = literal(&triples, &namespace, OWL_VERSION_INFO);
@@ -167,7 +158,7 @@ pub fn discover(vocabularies_root: &Path, site_base: &str) -> Result<Discovery, 
     }
     found.published.push(Vocabulary {
       dir_name,
-      kind: asset_class.into(),
+      kind: asset_type.into(),
       slug: slug.into(),
       version: version.into(),
       namespace,
@@ -218,12 +209,12 @@ fn ontology_iri(triples: &[Triple]) -> Result<String, String> {
   }
 }
 
-/// `c_89b4bdb7/odrl-profile/v0.0.1#` -> `("c_89b4bdb7", "odrl-profile", "v0.0.1")`.
+/// `vocabulary/odrl-profile/v0.0.1#` -> `("vocabulary", "odrl-profile", "v0.0.1")`.
 fn split_iri_path(rest: &str) -> Option<(&str, &str, &str)> {
   let mut segments = rest.strip_suffix('#')?.split('/');
-  let (asset_class, slug, version) = (segments.next()?, segments.next()?, segments.next()?);
+  let (asset_type, slug, version) = (segments.next()?, segments.next()?, segments.next()?);
   let valid = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-._".contains(c));
-  (segments.next().is_none() && [asset_class, slug, version].into_iter().all(valid)).then_some((asset_class, slug, version))
+  (segments.next().is_none() && [asset_type, slug, version].into_iter().all(valid)).then_some((asset_type, slug, version))
 }
 
 /// The asset-classification codes `metadata.ttl` gives as `dcat:type`, if the

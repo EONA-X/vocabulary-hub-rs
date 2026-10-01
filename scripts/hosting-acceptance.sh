@@ -120,13 +120,13 @@ routed() { # <host> <slug> <version>: what dev and prd share
   got=$(status "https://$h/voc/")
   [ "${got%% *}" = 404 ] && ok "/voc/ is not a public path" || ko "/voc/ -> $got (want 404)"
   got=$(status "https://$h/voc/${slug%%/*}/")
-  [ "${got%% *}" = 404 ] && ok "/voc/<asset-class>/ is not a public path" || ko "/voc/${slug%%/*}/ -> $got (want 404)"
+  [ "${got%% *}" = 404 ] && ok "/voc/<asset-type>/ is not a public path" || ko "/voc/${slug%%/*}/ -> $got (want 404)"
   got=$(status "https://$h/${slug%%/*}/")
-  [ "${got%% *}" = 404 ] && ok "/<asset-class>/ has no index (404)" || ko "/${slug%%/*}/ -> $got (want 404)"
+  [ "${got%% *}" = 404 ] && ok "/<asset-type>/ has no index (404)" || ko "/${slug%%/*}/ -> $got (want 404)"
 }
 
 for sv in $versions; do
-  slug=${sv%/*}; version=${sv##*/}   # slug = <asset-class>/<slug>
+  slug=${sv%/*}; version=${sv##*/}   # slug = <asset-type>/<slug>
   echo "== $slug/$version"
 
   echo "-- bare"

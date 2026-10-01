@@ -48,7 +48,11 @@ ex:A a skos:Concept ; skos:inScheme ex: ; skos:prefLabel "A"@en .
 #[test]
 fn a_vocabulary_minted_under_the_site_base_is_published_at_its_asset_type_slug_and_version() {
   let root = tempfile::tempdir().unwrap();
-  vocab(root.path(), "eonax-odrl-profile", &ontology("https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#", "0.0.1"));
+  vocab(
+    root.path(),
+    "eonax-odrl-profile",
+    &ontology("https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#", "0.0.1"),
+  );
 
   let found = discover(root.path(), SITE_BASE).unwrap();
 
@@ -60,14 +64,22 @@ fn a_vocabulary_minted_under_the_site_base_is_published_at_its_asset_type_slug_a
   assert_eq!(v.slug, "odrl-profile");
   assert_eq!(v.version, "v0.0.1");
   assert_eq!(v.triples.len(), 5);
-  assert!(v.prefixes.iter().any(|(p, iri)| p == "ex" && iri == "https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#"));
+  assert!(
+    v.prefixes
+      .iter()
+      .any(|(p, iri)| p == "ex" && iri == "https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#")
+  );
 }
 
 #[test]
 fn every_asset_type_of_the_convention_is_accepted() {
   let root = tempfile::tempdir().unwrap();
   for asset_type in ["ontology", "shape", "crosswalk", "vocabulary", "codelist"] {
-    vocab(root.path(), &format!("eonax-{asset_type}"), &ontology(&format!("https://eona-x.eu/{asset_type}/x/v1.0.0#"), "1.0.0"));
+    vocab(
+      root.path(),
+      &format!("eonax-{asset_type}"),
+      &ontology(&format!("https://eona-x.eu/{asset_type}/x/v1.0.0#"), "1.0.0"),
+    );
   }
 
   let found = discover(root.path(), SITE_BASE).unwrap();
@@ -99,7 +111,11 @@ fn a_vocabulary_still_minted_elsewhere_is_skipped_with_its_namespace_as_the_reas
   assert!(found.published.is_empty());
   assert_eq!(found.skipped.len(), 1);
   assert_eq!(found.skipped[0].dir_name, "eonax-credentials");
-  assert!(found.skipped[0].reason.contains("https://w3id.org/eonax/credentials/"), "{}", found.skipped[0].reason);
+  assert!(
+    found.skipped[0].reason.contains("https://w3id.org/eonax/credentials/"),
+    "{}",
+    found.skipped[0].reason
+  );
 }
 
 #[test]
@@ -116,7 +132,11 @@ fn only_eonax_directories_are_candidates() {
 #[test]
 fn a_version_segment_that_disagrees_with_owl_version_info_fails_the_build() {
   let root = tempfile::tempdir().unwrap();
-  vocab(root.path(), "eonax-odrl-profile", &ontology("https://eona-x.eu/vocabulary/odrl-profile/v0.0.2#", "0.0.1"));
+  vocab(
+    root.path(),
+    "eonax-odrl-profile",
+    &ontology("https://eona-x.eu/vocabulary/odrl-profile/v0.0.2#", "0.0.1"),
+  );
 
   let err = discover(root.path(), SITE_BASE).err().expect("mismatched version must not publish");
 
@@ -128,7 +148,9 @@ fn the_former_slug_version_form_without_an_asset_type_fails_the_build() {
   let root = tempfile::tempdir().unwrap();
   vocab(root.path(), "eonax-odrl-profile", &ontology("https://eona-x.eu/odrl-profile/v0.0.1#", "0.0.1"));
 
-  let err = discover(root.path(), SITE_BASE).err().expect("an IRI under the site base without an asset type must not publish");
+  let err = discover(root.path(), SITE_BASE)
+    .err()
+    .expect("an IRI under the site base without an asset type must not publish");
 
   assert!(err.contains("<asset-type>/<slug>/<version>"), "{err}");
 }
@@ -140,13 +162,20 @@ fn an_unknown_asset_type_fails_the_build() {
 
   let err = discover(root.path(), SITE_BASE).err().expect("an unknown asset type must not publish");
 
-  assert!(err.contains("dataset") && err.contains("ontology, shape, crosswalk, vocabulary, codelist"), "{err}");
+  assert!(
+    err.contains("dataset") && err.contains("ontology, shape, crosswalk, vocabulary, codelist"),
+    "{err}"
+  );
 }
 
 #[test]
 fn a_concept_code_is_not_an_asset_type() {
   let root = tempfile::tempdir().unwrap();
-  vocab(root.path(), "eonax-odrl-profile", &ontology("https://eona-x.eu/c_89b4bdb7/odrl-profile/v0.0.1#", "0.0.1"));
+  vocab(
+    root.path(),
+    "eonax-odrl-profile",
+    &ontology("https://eona-x.eu/c_89b4bdb7/odrl-profile/v0.0.1#", "0.0.1"),
+  );
 
   let err = discover(root.path(), SITE_BASE).err().expect("a concept code is not a semantic segment");
 
@@ -159,7 +188,9 @@ fn the_asset_type_must_cover_the_eu_asset_classification_declared_in_metadata() 
   vocab(root.path(), "eonax-roles", &ontology("https://eona-x.eu/codelist/roles/v1.0.0#", "1.0.0"));
   metadata(root.path(), "eonax-roles", "c_89b4bdb7"); // Formal ontology
 
-  let err = discover(root.path(), SITE_BASE).err().expect("a codelist IRI on a Formal ontology must not publish");
+  let err = discover(root.path(), SITE_BASE)
+    .err()
+    .expect("a codelist IRI on a Formal ontology must not publish");
 
   assert!(err.contains("codelist") && err.contains("c_89b4bdb7"), "{err}");
 }

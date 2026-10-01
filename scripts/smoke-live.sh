@@ -4,7 +4,7 @@
 #   scripts/smoke-live.sh https://eona-x.eu/ public
 set -eu
 base=$1; site=$2; fail=0
-# <site>/<asset-class>/<slug>/<version>.ttl
+# <site>/<asset-type>/<slug>/<version>.ttl
 for ttl in "$site"/*/*/*.ttl; do
   [ -e "$ttl" ] || continue
   slug_path=${ttl#"$site"/}; slug_path=${slug_path%/*}

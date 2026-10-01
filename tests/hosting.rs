@@ -26,11 +26,19 @@ fn no_eu_concept_is_covered_by_two_asset_types() {
 #[test]
 fn the_router_routes_exactly_the_asset_types() {
   let router = fs::read_to_string("hosting/router.htaccess").unwrap();
-  assert!(router.contains(&asset_type_alternation()), "hosting/router.htaccess must route {}", asset_type_alternation());
+  assert!(
+    router.contains(&asset_type_alternation()),
+    "hosting/router.htaccess must route {}",
+    asset_type_alternation()
+  );
 }
 
 #[test]
 fn the_dev_overlay_gives_asset_type_paths_the_eona_x_eu_canonical_host() {
   let dev = fs::read_to_string("hosting/dev/.htaccess").unwrap();
-  assert!(dev.contains(&asset_type_alternation()), "hosting/dev/.htaccess must match {}", asset_type_alternation());
+  assert!(
+    dev.contains(&asset_type_alternation()),
+    "hosting/dev/.htaccess must match {}",
+    asset_type_alternation()
+  );
 }
