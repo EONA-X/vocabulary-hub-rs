@@ -72,6 +72,15 @@ scripts/check-conneg.sh http://localhost:18088/ vocabulary/odrl-profile v0.0.1
 docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <site-dir>
 ```
 
+## Updating the content
+
+`content/` pins content.vocabulary-hub.eona-x.eu. To publish what is on its `main`, run the
+manual **`bump:content`** job of a `main` pipeline: it moves `content/` to that latest `main`,
+commits and pushes the bump if anything changed (listing the incoming commits), and the push
+starts the pipeline that rebuilds and redeploys dev. It pushes with the CI job token as the user
+who runs it, so it needs a Maintainer and the project's *CI/CD → Job token permissions → Allow
+Git push requests to the repository*.
+
 ## Hosting and deploy
 
 Two environments with the **same paths**; only the web root around `voc/` differs. Checked by
@@ -82,7 +91,7 @@ Two environments with the **same paths**; only the web root around `voc/` differ
 | `dev` | https://dev-voc.eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI dev build (prd: https://vocabulary.eona-x.eu/); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` |
 | `prd` | https://eona-x.eu/&lt;asset-type&gt;/&lt;slug&gt;/ | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
 
-The dev root files give dev-voc `robots.txt` `Disallow: /`, `X-Robots-Tag: noindex`, HTTP →
+The dev root files give dev-voc `X-Robots-Tag: noindex, nofollow` on every response (with a `robots.txt` that *allows* crawling, so crawlers read it), HTTP →
 HTTPS, and on every response a `rel="canonical"` Link to its production twin:
 `https://eona-x.eu<path>` under an asset type (`/vocabulary/…`, `/ontology/…`, …),
 `https://vocabulary.eona-x.eu<path>` elsewhere (the Hub UI). The Hub UI must therefore never use

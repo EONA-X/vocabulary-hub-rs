@@ -1,3 +1,9 @@
-# dev-*.eona-x.eu is a preview; the publication is https://eona-x.eu/
+# dev-voc.eona-x.eu is a preview. The publication is https://eona-x.eu/ (vocabularies)
+# and https://vocabulary.eona-x.eu/ (the Vocabulary Hub).
+#
+# Crawling is allowed ON PURPOSE: every response of this host carries
+# "X-Robots-Tag: noindex, nofollow", and a crawler only honours that if it may
+# fetch the page. Disallowing it here would let a linked dev-voc URL be listed
+# without its content.
 User-agent: *
-Disallow: /
+Allow: /

@@ -1,4 +1,4 @@
-# gates -> build -> hosting -> deploy.
+# bump (on demand) -> gates -> build -> hosting -> deploy.
 #
 # `public/` from `build` is the publication. `hosting` serves it in the three
 # layouts it will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind WordPress)
@@ -32,13 +32,68 @@ workflow:
     - if: '$CI_COMMIT_TAG'
 
 stages:
+  - bump
   - gates
   - build
   - hosting
   - deploy
 
+# ON DEMAND: publish the latest vocabularies. One click on the manual `bump`
+# job of a main pipeline starts a chain, each project bumping itself (a CI job
+# token may only push to its own project), all as the user who clicked:
+#   1. `bump` triggers a pipeline in content.vocabulary-hub.eona-x.eu, whose
+#      bump:vocabularies job moves vocabularies/ to eona-vocabularies-reference
+#      main and pushes if it changed, then triggers a pipeline here with
+#      BUMP_CONTENT=true;
+#   2. that pipeline runs only `bump:content`: content/ moves to the content
+#      repository's latest main, committed and pushed to main if it changed;
+#   3. the push starts the ordinary main pipeline, which rebuilds and
+#      redeploys dev (prd stays manual).
+# Pushes use the CI job token as the user who clicked, so only someone allowed
+# to push to the protected main branches (a Maintainer) can complete it; both
+# projects have "Allow Git push requests to the repository" enabled.
+bump:
+  stage: bump
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "pipeline" && $BUMP_CONTENT != "true"'
+      when: manual
+      allow_failure: true
+  variables:
+    BUMP_VOCABULARIES: "true"
+  trigger:
+    project: eona-x/semantic-hub/content.vocabulary-hub.eona-x.eu
+    branch: main
+
+bump:content:
+  stage: bump
+  image: alpine:3.20
+  rules:
+    - if: '$BUMP_CONTENT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  script:
+    - apk add --no-cache git >/dev/null
+    - content_url="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/eona-x/semantic-hub/content.vocabulary-hub.eona-x.eu.git"
+    - git -c "submodule.content.url=$content_url" submodule update --init content
+    - git -C content fetch -q "$content_url" main
+    - old=$(git rev-parse HEAD:content)
+    - new=$(git -C content rev-parse FETCH_HEAD)
+    - 'if [ "$old" = "$new" ]; then echo "content is already at the latest main ($old)"; exit 0; fi'
+    - git -C content checkout -q "$new"
+    - incoming=$(git -C content log --oneline "$old..$new")
+    - echo "$incoming"
+    - git config user.name "$GITLAB_USER_NAME"
+    - git config user.email "$GITLAB_USER_EMAIL"
+    - git add content
+    - 'git commit -q -m "chore: bump content to $(git -C content rev-parse --short HEAD)" -m "Latest main of content.vocabulary-hub.eona-x.eu, from the on-demand bump (pipeline $CI_PIPELINE_ID):" -m "$incoming"'
+    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "HEAD:$CI_DEFAULT_BRANCH"
+
 .rust:
   image: $RUST_IMAGE
+  rules:
+    - if: '$BUMP_CONTENT == "true"'
+      when: never
+    - when: on_success
   cache:
     key:
       files: [Cargo.lock]
@@ -81,6 +136,10 @@ hosting:
   stage: hosting
   image: httpd:2.4
   needs: [build]
+  rules:
+    - if: '$BUMP_CONTENT == "true"'
+      when: never
+    - when: on_success
   variables:
     GIT_SUBMODULE_STRATEGY: none
   script:
@@ -105,7 +164,7 @@ deploy:dev:
     name: dev
     url: https://dev-voc.eona-x.eu/
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
   script:
     - sh scripts/deploy-sftp.sh public mirror
     # Then the web root's own files (dev overlay + router, robots.txt), added
@@ -113,7 +172,9 @@ deploy:dev:
     - sh scripts/dev-root.sh dev-root
     - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh dev-root additive
     - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
-    - "curl -sf https://dev-voc.eona-x.eu/robots.txt | grep -qx 'Disallow: /'"
+    # dev-voc must never be indexed: crawlers may fetch it (robots.txt), and every
+    # response says noindex.
+    - "curl -sfI https://dev-voc.eona-x.eu/ | grep -qi '^x-robots-tag: noindex'"
 
 deploy:prd:
   extends: .deploy
@@ -122,7 +183,7 @@ deploy:prd:
     name: prd
     url: https://eona-x.eu/
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
       when: manual
   script:
     - sh scripts/deploy-sftp.sh public additive
