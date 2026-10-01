@@ -353,7 +353,7 @@ fn each_asset_is_a_dataset_carrying_its_latest_metadata_and_the_computed_links()
 
   // A crosswalk lands on the crosswalk view.
   let xwalk = node(&nodes, &format!("{CATALOG_IRI}/xwalk"));
-  assert_eq!(ids(&xwalk[&format!("{DCAT}landingPage")]), [format!("{DOCS_BASE}/crosswalk?crosswalk=xwalk")]);
+  assert_eq!(ids(&xwalk[&format!("{DCAT}landingPage")]), [format!("{DOCS_BASE}/crosswalks?crosswalk=xwalk")]);
   assert_eq!(ids(&xwalk[&format!("{DCAT}type")]), [format!("{ASSETTYPE}c_bba2bb35")]);
 }
 
