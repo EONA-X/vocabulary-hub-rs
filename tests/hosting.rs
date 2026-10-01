@@ -42,3 +42,14 @@ fn the_dev_overlay_gives_asset_type_paths_the_eona_x_eu_canonical_host() {
     asset_type_alternation()
   );
 }
+
+#[test]
+fn the_router_adds_the_trailing_slash_with_an_explicit_https_url() {
+  // A relative target lets Apache build the URL, and behind OVH's TLS front it
+  // adds ":443" (observed on dev-voc.eona-x.eu).
+  let router = fs::read_to_string("hosting/router.htaccess").unwrap();
+  assert!(
+    router.contains(&format!("RewriteRule ^({}/[^/]+)$ https://%{{HTTP_HOST}}/$1/ [R=301,L]", asset_type_alternation())),
+    "{router}"
+  );
+}
