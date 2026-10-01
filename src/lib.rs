@@ -15,7 +15,7 @@ pub use discover::{Discovery, Skipped, Vocabulary, discover};
 /// Where the site is served.
 pub const SITE_BASE: &str = "https://eona-x.eu/";
 
-pub use discover::{ASSET_CLASS_PATTERN, ASSET_CLASSES};
+pub use discover::{ASSET_CLASS_PATTERN, ASSET_CLASSES, ASSET_TYPES, asset_type_alternation};
 
 mod htaccess;
 mod html;

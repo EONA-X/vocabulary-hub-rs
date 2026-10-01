@@ -52,6 +52,11 @@ pub const ASSET_CLASSES: [&str; 34] = [
   "c_eed252ff", // Object-oriented model
 ];
 
+pub const ASSET_TYPES: [(&str, &[&str]); 0] = [];
+pub fn asset_type_alternation() -> String {
+  String::new()
+}
+
 /// The shape shared by every code in [`ASSET_CLASSES`]: what the hand-installed
 /// router and dev overlay match, as an Apache regex.
 pub const ASSET_CLASS_PATTERN: &str = "c_[0-9a-f]{8}";

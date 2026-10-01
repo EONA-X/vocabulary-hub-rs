@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use oxrdf::Triple;
 use vocabulary_hub_build::{SITE_BASE, Vocabulary, discover, site::write_site};
 
-const NS: &str = "https://eona-x.eu/c_89b4bdb7/odrl-profile/v0.0.1#";
+const NS: &str = "https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#";
 
 fn profile() -> String {
   format!(
@@ -50,10 +50,10 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   written.sort();
 
   let expected: Vec<PathBuf> = [
-    "c_89b4bdb7/odrl-profile/.htaccess",
-    "c_89b4bdb7/odrl-profile/v0.0.1.html",
-    "c_89b4bdb7/odrl-profile/v0.0.1.jsonld",
-    "c_89b4bdb7/odrl-profile/v0.0.1.ttl",
+    "vocabulary/odrl-profile/.htaccess",
+    "vocabulary/odrl-profile/v0.0.1.html",
+    "vocabulary/odrl-profile/v0.0.1.jsonld",
+    "vocabulary/odrl-profile/v0.0.1.ttl",
   ]
   .map(PathBuf::from)
   .into();
@@ -71,7 +71,7 @@ fn the_turtle_is_the_whole_document_and_keeps_the_source_prefixes() {
 
   write_site(out.path(), &vocabularies).unwrap();
 
-  let ttl = fs::read(out.path().join("c_89b4bdb7/odrl-profile/v0.0.1.ttl")).unwrap();
+  let ttl = fs::read(out.path().join("vocabulary/odrl-profile/v0.0.1.ttl")).unwrap();
   let reparsed = oxttl::TurtleParser::new().for_reader(ttl.as_slice()).collect::<Result<Vec<_>, _>>().unwrap();
   assert_eq!(triple_set(reparsed), triple_set(vocabularies[0].triples.clone()));
   assert!(String::from_utf8(ttl).unwrap().contains(&format!("@prefix eox-policy: <{NS}>")));
@@ -85,7 +85,7 @@ fn the_json_ld_is_the_same_graph() {
 
   write_site(out.path(), &vocabularies).unwrap();
 
-  let jsonld = fs::read(out.path().join("c_89b4bdb7/odrl-profile/v0.0.1.jsonld")).unwrap();
+  let jsonld = fs::read(out.path().join("vocabulary/odrl-profile/v0.0.1.jsonld")).unwrap();
   let reparsed: Vec<Triple> = oxjsonld::JsonLdParser::new()
     .for_reader(jsonld.as_slice())
     .map(|q| Triple::from(q.unwrap()))
@@ -100,7 +100,7 @@ fn the_html_gives_every_term_an_anchor_named_after_its_fragment() {
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let html = fs::read_to_string(out.path().join("c_89b4bdb7/odrl-profile/v0.0.1.html")).unwrap();
+  let html = fs::read_to_string(out.path().join("vocabulary/odrl-profile/v0.0.1.html")).unwrap();
   assert!(html.contains(r#"id="GenericClaim""#), "{html}");
   assert!(html.contains(r#"id="leftOperands""#), "{html}");
   assert!(html.contains("Generic Claim"));
@@ -117,7 +117,7 @@ fn the_html_links_its_machine_readable_twins_and_escapes_literals() {
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let html = fs::read_to_string(out.path().join("c_89b4bdb7/odrl-profile/v0.0.1.html")).unwrap();
+  let html = fs::read_to_string(out.path().join("vocabulary/odrl-profile/v0.0.1.html")).unwrap();
   assert!(html.contains("<title>Eona-X ODRL Profile"), "{html}");
   assert!(html.contains(r#"href="v0.0.1.ttl""#));
   assert!(html.contains(r#"href="v0.0.1.jsonld""#));
@@ -132,8 +132,8 @@ fn the_htaccess_negotiates_any_version_present_on_disk_and_points_the_bare_slug_
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let htaccess = fs::read_to_string(out.path().join("c_89b4bdb7/odrl-profile/.htaccess")).unwrap();
-  assert!(htaccess.contains("RewriteBase /c_89b4bdb7/odrl-profile/"), "{htaccess}");
+  let htaccess = fs::read_to_string(out.path().join("vocabulary/odrl-profile/.htaccess")).unwrap();
+  assert!(htaccess.contains("RewriteBase /vocabulary/odrl-profile/"), "{htaccess}");
   // Upstream only keeps the latest version, so a later build will not know
   // about v0.0.1 — yet its IRIs must keep resolving once deployed. The rules
   // key on the files being there, never on a list of versions.
@@ -152,11 +152,11 @@ fn the_htaccess_answers_only_under_its_published_path_even_behind_a_router() {
   write_site(out.path(), &published(src.path())).unwrap();
 
   // On eona-x.eu the slug sits under voc/ behind the apex router; a direct
-  // /voc/c_89b4bdb7/odrl-profile/... request (no internal redirect yet) must not be a
+  // /voc/vocabulary/odrl-profile/... request (no internal redirect yet) must not be a
   // second public path for the same document.
-  let htaccess = fs::read_to_string(out.path().join("c_89b4bdb7/odrl-profile/.htaccess")).unwrap();
+  let htaccess = fs::read_to_string(out.path().join("vocabulary/odrl-profile/.htaccess")).unwrap();
   assert!(
-    htaccess.contains("RewriteCond %{ENV:REDIRECT_STATUS} ^$\nRewriteCond %{REQUEST_URI} !^/c_89b4bdb7/odrl-profile(/|$)\nRewriteRule ^ - [R=404,L]"),
+    htaccess.contains("RewriteCond %{ENV:REDIRECT_STATUS} ^$\nRewriteCond %{REQUEST_URI} !^/vocabulary/odrl-profile(/|$)\nRewriteRule ^ - [R=404,L]"),
     "{htaccess}"
   );
 }
@@ -168,9 +168,9 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let html = fs::read_to_string(out.path().join("c_89b4bdb7/odrl-profile/v0.0.1.html")).unwrap();
+  let html = fs::read_to_string(out.path().join("vocabulary/odrl-profile/v0.0.1.html")).unwrap();
   assert!(
-    html.contains(r#"<link rel="canonical" href="https://eona-x.eu/c_89b4bdb7/odrl-profile/v0.0.1">"#),
+    html.contains(r#"<link rel="canonical" href="https://eona-x.eu/vocabulary/odrl-profile/v0.0.1">"#),
     "{html}"
   );
 }
