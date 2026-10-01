@@ -51,6 +51,9 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
 
   let expected: Vec<PathBuf> = [
     "vocabulary/odrl-profile/.htaccess",
+    "vocabulary/odrl-profile/assets/components.css",
+    "vocabulary/odrl-profile/assets/ontology.css",
+    "vocabulary/odrl-profile/assets/tokens.css",
     "vocabulary/odrl-profile/v0.0.1.html",
     "vocabulary/odrl-profile/v0.0.1.jsonld",
     "vocabulary/odrl-profile/v0.0.1.ttl",
@@ -191,4 +194,62 @@ fn a_build_that_publishes_nothing_still_produces_its_output_directory() {
   // case, and CI steps after the build expect the directory to exist.
   assert!(written.is_empty());
   assert!(site.is_dir());
+}
+
+fn html_page(out: &Path) -> String {
+  let src = tempfile::tempdir().unwrap();
+  write_site(out, &published(src.path())).unwrap();
+  fs::read_to_string(out.join("vocabulary/odrl-profile/v0.0.1.html")).unwrap()
+}
+
+#[test]
+fn the_html_page_is_styled_by_the_eona_x_ui_toolkit_stylesheets_shipped_next_to_it() {
+  let out = tempfile::tempdir().unwrap();
+  let html = html_page(out.path());
+
+  for (file, content) in [
+    ("tokens.css", eona_ui_toolkit::TOKENS_CSS),
+    ("components.css", eona_ui_toolkit::COMPONENTS_CSS),
+    ("ontology.css", eona_ui_toolkit::ONTOLOGY_CSS),
+  ] {
+    assert!(html.contains(&format!(r#"<link rel="stylesheet" href="assets/{file}">"#)), "{file} not linked:\n{html}");
+    assert_eq!(fs::read_to_string(out.path().join("vocabulary/odrl-profile/assets").join(file)).unwrap(), content, "{file}");
+  }
+}
+
+#[test]
+fn the_html_page_uses_the_default_eona_x_theme() {
+  let out = tempfile::tempdir().unwrap();
+  let html = html_page(out.path());
+
+  // The toolkit's light EONA-X palette is the default; dark is an opt-in attribute.
+  assert!(html.contains(r#"<html lang="en">"#), "{html}");
+  assert!(!html.contains("data-theme"), "{html}");
+}
+
+#[test]
+fn the_html_page_carries_the_eona_x_mark_linking_to_eona_x_eu() {
+  let out = tempfile::tempdir().unwrap();
+  let html = html_page(out.path());
+
+  let svg_head = &eona_ui_toolkit::LOGO_SVG[eona_ui_toolkit::LOGO_SVG.find("<svg").unwrap()..][..40];
+  assert!(html.contains(svg_head), "the toolkit's logo is not inlined:\n{html}");
+  assert!(html.contains(r#"href="https://eona-x.eu/""#), "{html}");
+}
+
+#[test]
+fn terms_are_rendered_with_the_toolkit_ontology_components() {
+  let out = tempfile::tempdir().unwrap();
+  let html = html_page(out.path());
+
+  // SectionHead opens the overview and the terms.
+  assert!(html.contains(r#"class="section-head""#), "{html}");
+  // OntoBadge for each rdf:type: odrl:LeftOperand has no TermKind of its own.
+  assert!(html.contains(r#"class="badge badge--default""#) && html.contains("odrl:LeftOperand"), "{html}");
+  // OntoAnnotation for each annotation, with the literal's language as a badge.
+  assert!(html.contains(r#"<dt class="annotation__label">Definition</dt>"#), "{html}");
+  assert!(html.contains(r#"<span class="annotation__text">Addresses a claim inside a credential.</span>"#), "{html}");
+  assert!(html.contains(">en</span>"), "{html}");
+  // SimpleFooter closes the page.
+  assert!(html.contains(r#"class="icons-footer""#), "{html}");
 }
