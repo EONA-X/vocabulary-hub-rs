@@ -2,7 +2,8 @@
 //!
 //! `<vocabularies-dir>` is a checkout of eona-vocabularies-reference (the
 //! `vocabularies/` submodule of content.vocabulary-hub.eona-x.eu);
-//! `<out-dir>` receives the tree to upload to the eona-x.eu web root.
+//! `<out-dir>` receives one tree per production host (`eona-x.eu/`,
+//! `vocabulary.eona-x.eu/`), each uploaded to that host's `voc/` folder.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -26,7 +27,7 @@ fn main() -> ExitCode {
     println!("skip    {}: {}", s.dir_name, s.reason);
   }
   for v in &found.published {
-    println!("publish {} -> {SITE_BASE}{}/{}/{}", v.dir_name, v.kind, v.slug, v.version);
+    println!("publish {} -> {}{}/{}/{}", v.dir_name, v.base, v.kind, v.slug, v.version);
   }
   match write_site(out, &found.published) {
     Ok(written) => {

@@ -1,10 +1,14 @@
 # bump (on demand) -> gates -> build -> hosting -> deploy.
 #
-# `public/` from `build` is the publication. `hosting` serves it in the three
-# layouts it will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind WordPress)
-# from a stock httpd:2.4. On main, `deploy:dev` mirrors it into dev-voc's voc/
-# folder and adds dev-voc's root files (scripts/dev-root.sh), then
-# `deploy:prd` — manual — adds it to eona-x.eu's voc/ folder (additive: a
+# `public/` from `build` is the publication, one tree per production host:
+# public/eona-x.eu (Eona-X-authored vocabularies) and
+# public/vocabulary.eona-x.eu (vendored standards). `hosting` serves them in
+# the layouts they will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind
+# WordPress, vocabulary.eona-x.eu) from a stock httpd:2.4. On main,
+# `deploy:dev` mirrors both trees, merged, into dev-voc's voc/ folder and adds
+# dev-voc's root files (scripts/dev-root.sh); then — manual — `deploy:prd`
+# adds public/eona-x.eu to eona-x.eu's voc/ folder and `deploy:prd-vocabulary`
+# adds public/vocabulary.eona-x.eu to vocabulary.eona-x.eu's (additive: a
 # published version is never deleted). Each environment has its own SFTP
 # account, rooted at its web root; OVH_SFTP_USER/PASSWORD/DIR are scoped per
 # GitLab environment. Each deploy ends with the same content-negotiation
@@ -124,8 +128,8 @@ build:
   stage: build
   script:
     - cargo run --release --locked -- content/vocabularies public
-    # The acceptance tree adds a fixture vocabulary, so the hosting layouts
-    # are exercised even while nothing upstream is minted under eona-x.eu.
+    # The acceptance tree adds two fixture vocabularies, one per host, so every
+    # hosting layout is exercised whatever upstream publishes.
     - cargo run --release --locked -- tests/fixtures/vocabularies acceptance-site
     - cp -r public/. acceptance-site/
   artifacts:
@@ -152,8 +156,8 @@ hosting:
     GIT_SUBMODULE_STRATEGY: none
   before_script:
     - apt-get update -qq && apt-get install -qq -y lftp openssh-client curl >/dev/null
-    # GitLab drops an empty public/ from the artifacts when nothing is published.
-    - mkdir -p public
+    # GitLab drops an empty tree from the artifacts when nothing is published.
+    - mkdir -p public/eona-x.eu public/vocabulary.eona-x.eu
     # This pipeline's own publication only ever goes to a voc/ folder.
     - 'case "${OVH_SFTP_DIR:-}" in voc|*/voc) ;; *) echo "OVH_SFTP_DIR=${OVH_SFTP_DIR:-<unset>} is not a voc/ folder" >&2; exit 1 ;; esac'
 
@@ -166,12 +170,16 @@ deploy:dev:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
   script:
-    - sh scripts/deploy-sftp.sh public mirror
+    # dev-voc previews both hosts: their trees, merged (the build refuses a
+    # path on both).
+    - mkdir -p dev-site && cp -r public/eona-x.eu/. public/vocabulary.eona-x.eu/. dev-site/
+    - sh scripts/deploy-sftp.sh dev-site mirror
     # Then the web root's own files (dev overlay + router, robots.txt), added
     # next to voc/ and the Hub UI build without deleting anything there.
     - sh scripts/dev-root.sh dev-root
     - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh dev-root additive
-    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
+    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public/eona-x.eu
+    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public/vocabulary.eona-x.eu
     # dev-voc must never be indexed: crawlers may fetch it (robots.txt), and every
     # response says noindex.
     - "curl -sfI https://dev-voc.eona-x.eu/ | grep -qi '^x-robots-tag: noindex'"
@@ -186,5 +194,18 @@ deploy:prd:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
       when: manual
   script:
-    - sh scripts/deploy-sftp.sh public additive
-    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public
+    - sh scripts/deploy-sftp.sh public/eona-x.eu additive
+    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public/eona-x.eu
+
+deploy:prd-vocabulary:
+  extends: .deploy
+  needs: [build, hosting, "deploy:dev"]
+  environment:
+    name: prd-vocabulary
+    url: https://vocabulary.eona-x.eu/
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
+      when: manual
+  script:
+    - sh scripts/deploy-sftp.sh public/vocabulary.eona-x.eu additive
+    - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public/vocabulary.eona-x.eu

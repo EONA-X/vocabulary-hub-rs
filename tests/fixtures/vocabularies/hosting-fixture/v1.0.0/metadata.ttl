@@ -1,3 +1,3 @@
 @prefix dcat: <http://www.w3.org/ns/dcat#> .
 @prefix assettype: <http://publications.europa.eu/resource/authority/asset-classification/> .
-<> a dcat:Dataset ; dcat:type assettype:c_cdd11291 .
+<> a dcat:Dataset ; dcat:type assettype:c_cdd11291 ; dcat:version "1.0.0" .

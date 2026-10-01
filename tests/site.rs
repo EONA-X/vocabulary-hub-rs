@@ -30,8 +30,8 @@ eox-policy:leftOperands a skos:Collection ;
 }
 
 fn published(root: &Path) -> Vec<Vocabulary> {
-  fs::create_dir_all(root.join("eonax-odrl-profile")).unwrap();
-  fs::write(root.join("eonax-odrl-profile/ontology.ttl"), profile()).unwrap();
+  fs::create_dir_all(root.join("odrl-profile/v0.0.1")).unwrap();
+  fs::write(root.join("odrl-profile/v0.0.1/ontology.ttl"), profile()).unwrap();
   discover(root, SITE_BASE).unwrap().published
 }
 
@@ -50,13 +50,13 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   written.sort();
 
   let expected: Vec<PathBuf> = [
-    "vocabulary/odrl-profile/.htaccess",
-    "vocabulary/odrl-profile/assets/components.css",
-    "vocabulary/odrl-profile/assets/ontology.css",
-    "vocabulary/odrl-profile/assets/tokens.css",
-    "vocabulary/odrl-profile/v0.0.1.html",
-    "vocabulary/odrl-profile/v0.0.1.jsonld",
-    "vocabulary/odrl-profile/v0.0.1.ttl",
+    "eona-x.eu/vocabulary/odrl-profile/.htaccess",
+    "eona-x.eu/vocabulary/odrl-profile/assets/components.css",
+    "eona-x.eu/vocabulary/odrl-profile/assets/ontology.css",
+    "eona-x.eu/vocabulary/odrl-profile/assets/tokens.css",
+    "eona-x.eu/vocabulary/odrl-profile/v0.0.1.html",
+    "eona-x.eu/vocabulary/odrl-profile/v0.0.1.jsonld",
+    "eona-x.eu/vocabulary/odrl-profile/v0.0.1.ttl",
   ]
   .map(PathBuf::from)
   .into();
@@ -74,7 +74,7 @@ fn the_turtle_is_the_whole_document_and_keeps_the_source_prefixes() {
 
   write_site(out.path(), &vocabularies).unwrap();
 
-  let ttl = fs::read(out.path().join("vocabulary/odrl-profile/v0.0.1.ttl")).unwrap();
+  let ttl = fs::read(out.path().join("eona-x.eu/vocabulary/odrl-profile/v0.0.1.ttl")).unwrap();
   let reparsed = oxttl::TurtleParser::new().for_reader(ttl.as_slice()).collect::<Result<Vec<_>, _>>().unwrap();
   assert_eq!(triple_set(reparsed), triple_set(vocabularies[0].triples.clone()));
   assert!(String::from_utf8(ttl).unwrap().contains(&format!("@prefix eox-policy: <{NS}>")));
@@ -88,7 +88,7 @@ fn the_json_ld_is_the_same_graph() {
 
   write_site(out.path(), &vocabularies).unwrap();
 
-  let jsonld = fs::read(out.path().join("vocabulary/odrl-profile/v0.0.1.jsonld")).unwrap();
+  let jsonld = fs::read(out.path().join("eona-x.eu/vocabulary/odrl-profile/v0.0.1.jsonld")).unwrap();
   let reparsed: Vec<Triple> = oxjsonld::JsonLdParser::new()
     .for_reader(jsonld.as_slice())
     .map(|q| Triple::from(q.unwrap()))
@@ -103,7 +103,7 @@ fn the_html_gives_every_term_an_anchor_named_after_its_fragment() {
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let html = fs::read_to_string(out.path().join("vocabulary/odrl-profile/v0.0.1.html")).unwrap();
+  let html = fs::read_to_string(out.path().join("eona-x.eu/vocabulary/odrl-profile/v0.0.1.html")).unwrap();
   assert!(html.contains(r#"id="GenericClaim""#), "{html}");
   assert!(html.contains(r#"id="leftOperands""#), "{html}");
   assert!(html.contains("Generic Claim"));
@@ -120,7 +120,7 @@ fn the_html_links_its_machine_readable_twins_and_escapes_literals() {
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let html = fs::read_to_string(out.path().join("vocabulary/odrl-profile/v0.0.1.html")).unwrap();
+  let html = fs::read_to_string(out.path().join("eona-x.eu/vocabulary/odrl-profile/v0.0.1.html")).unwrap();
   assert!(html.contains("<title>Eona-X ODRL Profile"), "{html}");
   assert!(html.contains(r#"href="v0.0.1.ttl""#));
   assert!(html.contains(r#"href="v0.0.1.jsonld""#));
@@ -135,7 +135,7 @@ fn the_htaccess_negotiates_any_version_present_on_disk_and_points_the_bare_slug_
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let htaccess = fs::read_to_string(out.path().join("vocabulary/odrl-profile/.htaccess")).unwrap();
+  let htaccess = fs::read_to_string(out.path().join("eona-x.eu/vocabulary/odrl-profile/.htaccess")).unwrap();
   assert!(htaccess.contains("RewriteBase /vocabulary/odrl-profile/"), "{htaccess}");
   // Upstream only keeps the latest version, so a later build will not know
   // about v0.0.1 — yet its IRIs must keep resolving once deployed. The rules
@@ -162,7 +162,7 @@ fn the_htaccess_answers_only_under_its_published_path_even_behind_a_router() {
   // On eona-x.eu the slug sits under voc/ behind the apex router; a direct
   // /voc/vocabulary/odrl-profile/... request (no internal redirect yet) must not be a
   // second public path for the same document.
-  let htaccess = fs::read_to_string(out.path().join("vocabulary/odrl-profile/.htaccess")).unwrap();
+  let htaccess = fs::read_to_string(out.path().join("eona-x.eu/vocabulary/odrl-profile/.htaccess")).unwrap();
   assert!(
     htaccess.contains("RewriteCond %{ENV:REDIRECT_STATUS} ^$\nRewriteCond %{REQUEST_URI} !^/vocabulary/odrl-profile(/|$)\nRewriteRule ^ - [R=404,L]"),
     "{htaccess}"
@@ -176,7 +176,7 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
 
   write_site(out.path(), &published(src.path())).unwrap();
 
-  let html = fs::read_to_string(out.path().join("vocabulary/odrl-profile/v0.0.1.html")).unwrap();
+  let html = fs::read_to_string(out.path().join("eona-x.eu/vocabulary/odrl-profile/v0.0.1.html")).unwrap();
   assert!(
     html.contains(r#"<link rel="canonical" href="https://eona-x.eu/vocabulary/odrl-profile/v0.0.1">"#),
     "{html}"
@@ -199,7 +199,7 @@ fn a_build_that_publishes_nothing_still_produces_its_output_directory() {
 fn html_page(out: &Path) -> String {
   let src = tempfile::tempdir().unwrap();
   write_site(out, &published(src.path())).unwrap();
-  fs::read_to_string(out.join("vocabulary/odrl-profile/v0.0.1.html")).unwrap()
+  fs::read_to_string(out.join("eona-x.eu/vocabulary/odrl-profile/v0.0.1.html")).unwrap()
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn the_html_page_is_styled_by_the_eona_x_ui_toolkit_stylesheets_shipped_next_to_
       "{file} not linked:\n{html}"
     );
     assert_eq!(
-      fs::read_to_string(out.path().join("vocabulary/odrl-profile/assets").join(file)).unwrap(),
+      fs::read_to_string(out.path().join("eona-x.eu/vocabulary/odrl-profile/assets").join(file)).unwrap(),
       content,
       "{file}"
     );
@@ -273,4 +273,131 @@ fn the_page_cancels_the_toolkit_space_reserved_for_the_portal_fixed_header() {
   // fixed bar this page does not use; left alone it opens a blank band.
   assert!(eona_ui_toolkit::COMPONENTS_CSS.contains("html > body { padding-top:"));
   assert!(html.contains("html>body{padding-top:0}"), "{html}");
+}
+
+const VENDORED_NS: &str = "https://vocabulary.eona-x.eu/ontology/battery/v1.0.0#";
+
+/// An Eona-X representation of someone else's standard: an external
+/// `dcterms:creator` puts it on vocabulary.eona-x.eu.
+fn vendored(root: &Path) {
+  let dir = root.join("battery/v1.0.0");
+  fs::create_dir_all(&dir).unwrap();
+  fs::write(
+    dir.join("ontology.ttl"),
+    format!(
+      r#"@prefix bat: <{VENDORED_NS}> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+bat: a owl:Ontology ; owl:versionInfo "1.0.0" ; rdfs:label "Battery"@en .
+bat:Cell a owl:Class ; rdfs:label "Cell"@en ; rdfs:isDefinedBy bat: .
+"#
+    ),
+  )
+  .unwrap();
+  fs::write(
+    dir.join("metadata.ttl"),
+    r#"@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+<> dcterms:creator [ a foaf:Organization ; foaf:name "A standards body" ] .
+"#,
+  )
+  .unwrap();
+}
+
+fn both_hosts(root: &Path) -> Vec<Vocabulary> {
+  vendored(root);
+  published(root)
+}
+
+#[test]
+fn each_host_gets_its_own_tree_named_after_it() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  let written = write_site(out.path(), &both_hosts(src.path())).unwrap();
+
+  // One tree per production host, each uploaded to that host's voc/ folder
+  // (dev-voc merges them, their paths never collide).
+  for p in [
+    "eona-x.eu/vocabulary/odrl-profile/v0.0.1.ttl",
+    "vocabulary.eona-x.eu/ontology/battery/v1.0.0.ttl",
+    "vocabulary.eona-x.eu/ontology/battery/v1.0.0.jsonld",
+    "vocabulary.eona-x.eu/ontology/battery/v1.0.0.html",
+    "vocabulary.eona-x.eu/ontology/battery/.htaccess",
+    "vocabulary.eona-x.eu/ontology/battery/assets/tokens.css",
+  ] {
+    assert!(written.contains(&PathBuf::from(p)), "{p} not written: {written:?}");
+    assert!(out.path().join(p).is_file(), "{p} missing");
+  }
+  assert!(!out.path().join("eona-x.eu/ontology/battery").exists());
+  assert!(!out.path().join("vocabulary.eona-x.eu/vocabulary/odrl-profile").exists());
+}
+
+#[test]
+fn a_vendored_vocabulary_names_its_own_host_as_canonical() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  write_site(out.path(), &both_hosts(src.path())).unwrap();
+
+  let html = fs::read_to_string(out.path().join("vocabulary.eona-x.eu/ontology/battery/v1.0.0.html")).unwrap();
+  assert!(
+    html.contains(r#"<link rel="canonical" href="https://vocabulary.eona-x.eu/ontology/battery/v1.0.0">"#),
+    "{html}"
+  );
+  let ttl = fs::read_to_string(out.path().join("vocabulary.eona-x.eu/ontology/battery/v1.0.0.ttl")).unwrap();
+  assert!(ttl.contains(&format!("<{VENDORED_NS}>")), "{ttl}");
+}
+
+#[test]
+fn each_slug_htaccess_tells_the_dev_overlay_which_production_host_is_canonical() {
+  // dev-voc serves both hosts' paths side by side; the Link rel=canonical its
+  // root .htaccess sends names the host each slug belongs to.
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  write_site(out.path(), &both_hosts(src.path())).unwrap();
+
+  for (slug, host) in [
+    ("eona-x.eu/vocabulary/odrl-profile", "eona-x.eu"),
+    ("vocabulary.eona-x.eu/ontology/battery", "vocabulary.eona-x.eu"),
+  ] {
+    let htaccess = fs::read_to_string(out.path().join(slug).join(".htaccess")).unwrap();
+    assert!(htaccess.contains(&format!("RewriteRule ^ - [E=CANONICAL_HOST:{host}]")), "{htaccess}");
+    // Before the content-negotiation rules, which end the pass.
+    let set = htaccess.find("E=CANONICAL_HOST").unwrap();
+    assert!(set < htaccess.find("HTTP_ACCEPT").unwrap(), "{htaccess}");
+  }
+}
+
+#[test]
+fn one_asset_type_and_slug_on_both_hosts_is_refused() {
+  // The paths would collide on dev-voc; upstream's gate refuses it too.
+  let a = tempfile::tempdir().unwrap();
+  let b = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  let mut vocabularies = published(a.path());
+  let dir = b.path().join("odrl-profile/v0.0.2");
+  fs::create_dir_all(&dir).unwrap();
+  fs::write(
+    dir.join("ontology.ttl"),
+    profile()
+      .replace(
+        "https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#",
+        "https://vocabulary.eona-x.eu/vocabulary/odrl-profile/v0.0.2#",
+      )
+      .replace(r#""0.0.1""#, r#""0.0.2""#),
+  )
+  .unwrap();
+  fs::write(
+    dir.join("metadata.ttl"),
+    "@prefix dcterms: <http://purl.org/dc/terms/> .\n<> dcterms:creator \"Someone else\" .\n",
+  )
+  .unwrap();
+  vocabularies.extend(discover(b.path(), SITE_BASE).unwrap().published);
+  assert_eq!(vocabularies.len(), 2);
+
+  let err = write_site(out.path(), &vocabularies).unwrap_err();
+
+  assert!(err.to_string().contains("vocabulary/odrl-profile"), "{err}");
 }
