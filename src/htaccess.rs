@@ -43,7 +43,13 @@ RewriteEngine On
     let _ = writeln!(s, "RewriteRule ^([^/]+)$ $1.{ext} [L]");
   }
   if let Some(latest) = versions.iter().max_by(|a, b| version_key(a).cmp(&version_key(b))) {
-    let _ = writeln!(s, "\n# {slug_path}/ -> latest version of this build\nRewriteRule ^$ {latest} [R=302,L]");
+    // Absolute, on the request's own host: with a relative target Apache builds
+    // the URL itself, and behind OVH's TLS front it adds ":443". The sites
+    // are HTTPS-only (dev redirects plain HTTP), hence the fixed scheme.
+    let _ = writeln!(
+      s,
+      "\n# {slug_path}/ -> latest version of this build\nRewriteRule ^$ https://%{{HTTP_HOST}}/{slug_path}/{latest} [R=302,L]"
+    );
   }
   s
 }

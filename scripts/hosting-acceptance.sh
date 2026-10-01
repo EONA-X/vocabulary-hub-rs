@@ -53,7 +53,10 @@ for root in /srv/dev /srv/prd; do
   for d in "$root"/voc/*/*/; do
     ttl=$(ls "$d"*.ttl 2>/dev/null | head -1) || true
     [ -n "$ttl" ] || continue
-    for ext in ttl jsonld html; do cp "${ttl%.ttl}.$ext" "${d}v0.0.0-earlier.$ext"; done
+    # As an earlier build would have written it: same document, its own version
+    # in every IRI, so the body checks hold it to its own namespace.
+    v=$(basename "$ttl" .ttl)
+    for ext in ttl jsonld html; do sed "s#/$v#/v0.0.0-earlier#g" "${ttl%.ttl}.$ext" > "${d}v0.0.0-earlier.$ext"; done
   done
 done
 
