@@ -7,6 +7,11 @@ description = "Builds the static, content-negotiated publication of Eona-X vocab
 publish = false
 
 [dependencies]
+# The rules every vocabulary must pass, from the source repository itself
+# (eona-vocabularies-reference/tools/vocabulary-check, through the content
+# submodule): what its CI gates contributions on is exactly what this build
+# accepts, at the pinned commit.
+eona-vocabulary-check = { path = "content/vocabularies/tools/vocabulary-check" }
 # Pinned to an exact commit: the served files are a function of this crate's
 # serializers, so "which rdf-sitegen built this site" must have one answer.
 rdf-sitegen = { git = "https://github.com/ds-labs-org/ds-rdf-sitegen-rs.git", rev = "ee86c1d14c182f696e3cb7bdb571910f32a9ad10" }

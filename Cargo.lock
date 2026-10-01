@@ -80,6 +80,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eona-vocabulary-check"
+version = "0.1.0"
+dependencies = [
+ "oxrdf",
+ "oxttl",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1057,6 +1065,7 @@ name = "vocabulary-hub-build"
 version = "0.1.0"
 dependencies = [
  "eona-ui-toolkit",
+ "eona-vocabulary-check",
  "oxjsonld",
  "oxrdf",
  "oxttl",
