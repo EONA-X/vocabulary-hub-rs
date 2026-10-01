@@ -23,6 +23,9 @@ oxrdf = "0.3.4"
 eona-ui-toolkit = { git = "https://github.com/EONA-X/eona-ui-toolkit.git", rev = "89941e7075cd7ed4654141ce3c64f07ca9089eca", features = ["ssr"] }
 yew = { version = "0.23", features = ["ssr"] }
 tokio = { version = "1", features = ["rt"] }
+# The UI parses expanded JSON-LD with serde_json and preserve_order: key order is display order.
+serde_json = { version = "1", features = ["preserve_order"] }
+oxrdfxml = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

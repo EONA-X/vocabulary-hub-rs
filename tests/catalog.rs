@@ -1,0 +1,430 @@
+//! The Vocabulary Hub's catalog data (the UI's `docs/` tree), built from
+//! eona-vocabularies-reference as it is: every `<slug>/v<version>/` with a
+//! `metadata.ttl`. Ported from eona-vocabulary-services'
+//! publish-vocabulary-catalog/generate.py; fixtures modelled on its own
+//! (`vocab-alpha`, `vocab-beta`).
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+
+use serde_json::{Value, json};
+use vocabulary_hub_build::catalog::{CATALOG_IRI, DOCS_BASE, write_catalog};
+
+const BUILT_AT: &str = "2026-10-01 12:00 UTC";
+const DCT: &str = "http://purl.org/dc/terms/";
+const DCAT: &str = "http://www.w3.org/ns/dcat#";
+const FOAF: &str = "http://xmlns.com/foaf/0.1/";
+const ASSETTYPE: &str = "http://publications.europa.eu/resource/authority/asset-classification/";
+
+fn write(root: &Path, file: &str, content: &str) {
+  let path = root.join(file);
+  fs::create_dir_all(path.parent().unwrap()).unwrap();
+  fs::write(path, content).unwrap();
+}
+
+const PREFIXES: &str = r#"@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix schema: <http://schema.org/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix assettype: <http://publications.europa.eu/resource/authority/asset-classification/> .
+@prefix status: <http://publications.europa.eu/resource/authority/concept-status/> .
+"#;
+
+/// A `metadata.ttl` as upstream writes it (metadata profile 1.3.0).
+fn metadata(title: &str, version: &str, asset_type: &str, status: &str, extra: &str) -> String {
+  format!(
+    "{PREFIXES}<> a dcat:Dataset, adms:Asset ;\n  dcat:version \"{version}\" ;\n  dcterms:title \"{title}\"@en ;\n  dcterms:description \"About {title}.\"@en ;\n  dcat:type assettype:{asset_type} ;\n  adms:status status:{status} .\n{extra}\n"
+  )
+}
+
+fn alpha_ontology(version: &str) -> String {
+  format!(
+    r#"@prefix al: <https://example.org/alpha#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<https://example.org/alpha#> a owl:Ontology ; owl:versionInfo "{version}" ; rdfs:label "Alpha"@en .
+al:Thing a owl:Class ; rdfs:label "Thing"@en, "Chose"@fr ; rdfs:comment "A thing." .
+al:size a owl:DatatypeProperty ; rdfs:domain al:Thing ; rdfs:range <http://www.w3.org/2001/XMLSchema#integer> .
+"#
+  )
+}
+
+fn fixture(root: &Path) {
+  // Two versions of a vendored standard, with its upstream body and logo.
+  let upstream = "<> dcterms:creator [ a foaf:Agent ; foaf:name \"Alpha Standards Body\" ] .\n<> schema:logo \"alpha-logo.png\" .\n[] vann:preferredNamespacePrefix \"al\" ; vann:preferredNamespaceUri \"https://example.org/alpha#\" .";
+  for version in ["2.0.0", "2.1.0"] {
+    write(
+      root,
+      &format!("vocab-alpha/v{version}/metadata.ttl"),
+      &metadata("Vocab Alpha", version, "c_89b4bdb7", "CURRENT", upstream),
+    );
+    write(root, &format!("vocab-alpha/v{version}/ontology.ttl"), &alpha_ontology(version));
+  }
+  // A shapes graph: no root, no creator.
+  write(
+    root,
+    "vocab-beta/v1.0.0/metadata.ttl",
+    &metadata("Vocab Beta", "1.0.0", "c_3948c2ed", "DRAFT", ""),
+  );
+  write(
+    root,
+    "vocab-beta/v1.0.0/ontology.ttl",
+    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n<https://example.org/beta/S> a sh:NodeShape .\n",
+  );
+  // ont-a is published by the hub on eona-x.eu; ont-b declares its own graph file.
+  write(root, "ont-a/v1.0.0/metadata.ttl", &metadata("ont-a", "1.0.0", "c_89b4bdb7", "CURRENT", ""));
+  write(
+    root,
+    "ont-a/v1.0.0/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://eona-x.eu/ontology/ont-a/v1.0.0#> a owl:Ontology ; owl:versionInfo \"1.0.0\" .\n<https://eona-x.eu/ontology/ont-a/v1.0.0#X> a owl:Class .\n",
+  );
+  write(
+    root,
+    "ont-b/v1.0.0/metadata.ttl",
+    &metadata(
+      "ont-b",
+      "1.0.0",
+      "c_cdd11291",
+      "CURRENT",
+      "<> dcat:distribution [ a dcat:Distribution ; dcat:downloadURL <B-Model.ttl> ] .",
+    ),
+  );
+  write(
+    root,
+    "ont-b/v1.0.0/B-Model.ttl",
+    "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .\n<https://example.org/ont-b#> a skos:ConceptScheme .\n<https://example.org/ont-b#X> a skos:Concept .\n",
+  );
+  write(root, "xwalk/v0.1.0/metadata.ttl", &metadata("A to B", "0.1.0", "c_bba2bb35", "CURRENT", ""));
+  write(
+    root,
+    "xwalk/v0.1.0/alignment.ttl",
+    r#"@prefix void: <http://rdfs.org/ns/void#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+<https://example.org/x/a-b> a void:Linkset ; rdfs:seeAlso <https://example.org/ont-b#X>, <https://eona-x.eu/ontology/ont-a/v1.0.0#X> .
+<https://example.org/x/m1> a <http://www.w3.org/1999/02/22-rdf-syntax-ns#Statement> ;
+  <http://www.w3.org/1999/02/22-rdf-syntax-ns#subject> <https://eona-x.eu/ontology/ont-a/v1.0.0#X> ;
+  <http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate> skos:exactMatch ;
+  <http://www.w3.org/1999/02/22-rdf-syntax-ns#object> <https://example.org/ont-b#X> .
+"#,
+  );
+  // A dependency closure without metadata.ttl, the assets, and the tools.
+  write(
+    root,
+    "closure/v1.0.0/ontology.ttl",
+    "<https://example.org/c/C> a <http://www.w3.org/2002/07/owl#Class> .\n",
+  );
+  write(root, "assets/alpha-logo.png", "png");
+  write(root, "assets/owl-illustration.svg", "<svg/>");
+  write(root, "tools/vocabulary-check/Cargo.toml", "[package]");
+}
+
+fn build(root: &Path, out: &Path) {
+  fixture(root);
+  write_catalog(root, out, BUILT_AT).unwrap();
+}
+
+fn json(out: &Path, file: &str) -> Value {
+  serde_json::from_str(&fs::read_to_string(out.join(file)).unwrap()).unwrap()
+}
+
+fn node<'a>(nodes: &'a Value, id: &str) -> &'a Value {
+  let matching: Vec<&Value> = nodes.as_array().unwrap().iter().filter(|n| n["@id"] == id).collect();
+  assert_eq!(matching.len(), 1, "exactly one node {id}");
+  matching[0]
+}
+
+fn ids(values: &Value) -> Vec<String> {
+  values
+    .as_array()
+    .map(|a| a.iter().filter_map(|v| v["@id"].as_str().map(str::to_string)).collect())
+    .unwrap_or_default()
+}
+
+fn downloads(dir: &str, name: &str) -> Value {
+  json!({"ttl": format!("{dir}/{name}.ttl"), "jsonld": format!("{dir}/{name}.jsonld"), "owl": format!("{dir}/{name}.owl"), "nt": format!("{dir}/{name}.nt")})
+}
+
+#[test]
+fn ontologies_json_lists_the_latest_version_of_every_asset_but_the_crosswalks_in_slug_order() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+
+  let manifest = json(out.path(), "ontologies.json");
+
+  assert_eq!(manifest["generatedAt"], BUILT_AT);
+  let slugs: Vec<&str> = manifest["ontologies"].as_array().unwrap().iter().map(|e| e["slug"].as_str().unwrap()).collect();
+  assert_eq!(slugs, ["ont-a", "ont-b", "vocab-alpha", "vocab-beta"]);
+
+  let alpha = &manifest["ontologies"][2];
+  assert_eq!(alpha["title"], "Vocab Alpha");
+  assert_eq!(alpha["description"], "About Vocab Alpha.");
+  assert_eq!(alpha["jsonld"], "vocab-alpha/v2.1.0/ontology.jsonld");
+  assert_eq!(alpha["namespace"], "https://example.org/alpha#");
+  assert_eq!(alpha["prefix"], "al");
+  assert_eq!(alpha["version"], "2.1.0");
+  assert_eq!(alpha["upstream"], json!({"name": "Alpha Standards Body", "logo": "alpha-logo.png"}));
+  assert_eq!(alpha["kind"], "ontology");
+  assert_eq!(alpha["downloads"], downloads("vocab-alpha/v2.1.0", "ontology"));
+
+  // A declared graph file is published under the usual name.
+  let b = &manifest["ontologies"][1];
+  assert_eq!(b["kind"], "codelist");
+  assert_eq!(b["namespace"], "https://example.org/ont-b#");
+  assert_eq!(b["jsonld"], "ont-b/v1.0.0/ontology.jsonld");
+
+  // No root: no namespace (null, not "" — "" would prefix every IRI), and the
+  // slug as prefix.
+  let beta = &manifest["ontologies"][3];
+  assert_eq!(beta["kind"], "shape");
+  assert_eq!(beta["namespace"], Value::Null);
+  assert_eq!(beta["prefix"], "vocab-beta");
+  assert_eq!(beta["version"], "1.0.0");
+  assert_eq!(beta["upstream"], Value::Null);
+}
+
+#[test]
+fn alignments_json_lists_the_crosswalks_with_their_sides_in_authored_order() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+
+  let manifest = json(out.path(), "alignments.json");
+
+  assert_eq!(manifest["generatedAt"], BUILT_AT);
+  assert_eq!(
+    manifest["alignments"],
+    json!([{
+      "slug": "xwalk",
+      "title": "A to B",
+      "description": "About A to B.",
+      "kind": "crosswalk",
+      "version": "0.1.0",
+      "jsonld": "xwalk/v0.1.0/alignment.jsonld",
+      "sides": ["ont-b", "ont-a"],
+      "downloads": downloads("xwalk/v0.1.0", "alignment")
+    }])
+  );
+}
+
+#[test]
+fn every_version_is_published_in_four_formats_that_all_carry_the_source_graph() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+
+  for (dir, source, name) in [
+    ("vocab-alpha/v2.0.0", "ontology.ttl", "ontology"),
+    ("vocab-alpha/v2.1.0", "ontology.ttl", "ontology"),
+    ("ont-b/v1.0.0", "B-Model.ttl", "ontology"),
+    ("xwalk/v0.1.0", "alignment.ttl", "alignment"),
+  ] {
+    let source = graph_of_turtle(&fs::read(src.path().join(dir).join(source)).unwrap());
+    let base = out.path().join(dir);
+    let file = |ext: &str| fs::read(base.join(format!("{name}.{ext}"))).unwrap();
+    let ttl = graph_of_turtle(&file("ttl"));
+    let nt: HashSet<String> = oxttl::NTriplesParser::new()
+      .for_reader(file("nt").as_slice())
+      .map(|t| canonical(&t.unwrap()))
+      .collect();
+    let owl: HashSet<String> = oxrdfxml::RdfXmlParser::new()
+      .for_reader(file("owl").as_slice())
+      .map(|t| canonical(&t.unwrap()))
+      .collect();
+    let jsonld = graph_of_jsonld(&file("jsonld"));
+    for (format, g) in [("ttl", &ttl), ("nt", &nt), ("owl", &owl), ("jsonld", &jsonld)] {
+      assert_eq!(g, &source, "{dir}/{name}.{format}");
+    }
+  }
+}
+
+#[test]
+fn the_json_ld_is_expanded_one_node_per_subject_as_the_ui_parses_it() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+
+  let nodes = json(out.path(), "vocab-alpha/v2.1.0/ontology.jsonld");
+
+  let thing = node(&nodes, "https://example.org/alpha#Thing");
+  assert_eq!(thing["@type"], json!(["http://www.w3.org/2002/07/owl#Class"]));
+  let labels = thing["http://www.w3.org/2000/01/rdf-schema#label"].as_array().unwrap();
+  assert!(labels.contains(&json!({"@value": "Thing", "@language": "en"})), "{labels:?}");
+  assert!(labels.contains(&json!({"@value": "Chose", "@language": "fr"})), "{labels:?}");
+  assert_eq!(thing["http://www.w3.org/2000/01/rdf-schema#comment"], json!([{"@value": "A thing."}]));
+  let size = node(&nodes, "https://example.org/alpha#size");
+  assert_eq!(
+    size["http://www.w3.org/2000/01/rdf-schema#domain"],
+    json!([{"@id": "https://example.org/alpha#Thing"}])
+  );
+  assert_eq!(
+    size["http://www.w3.org/2000/01/rdf-schema#range"],
+    json!([{"@id": "http://www.w3.org/2001/XMLSchema#integer"}])
+  );
+  let version = &node(&nodes, "https://example.org/alpha#")["http://www.w3.org/2002/07/owl#versionInfo"];
+  assert_eq!(version, &json!([{"@value": "2.1.0"}]));
+}
+
+#[test]
+fn the_catalog_is_a_dcat_catalog_under_vocabulary_eona_x_eu() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+
+  assert_eq!(CATALOG_IRI, "https://vocabulary.eona-x.eu/catalog");
+  assert_eq!(DOCS_BASE, "https://vocabulary.eona-x.eu/docs");
+  let nodes = json(out.path(), "catalog.jsonld");
+
+  let catalog = node(&nodes, CATALOG_IRI);
+  assert_eq!(catalog["@type"], json!([format!("{DCAT}Catalog")]));
+  assert_eq!(catalog[&format!("{DCT}modified")], json!([{"@value": BUILT_AT}]));
+  assert!(catalog[&format!("{DCT}title")][0]["@value"].is_string());
+  assert_eq!(
+    ids(&catalog[&format!("{DCAT}dataset")]),
+    ["ont-a", "ont-b", "vocab-alpha", "vocab-beta", "xwalk"].map(|s| format!("{CATALOG_IRI}/{s}")),
+    "vocabularies in slug order, then crosswalks"
+  );
+  let ttl = fs::read_to_string(out.path().join("catalog.ttl")).unwrap();
+  assert!(ttl.contains(CATALOG_IRI));
+  assert_eq!(
+    graph_of_turtle(ttl.as_bytes()).len(),
+    graph_of_jsonld(&fs::read(out.path().join("catalog.jsonld")).unwrap()).len()
+  );
+}
+
+#[test]
+fn each_asset_is_a_dataset_carrying_its_latest_metadata_and_the_computed_links() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+  let nodes = json(out.path(), "catalog.jsonld");
+
+  let alpha = node(&nodes, &format!("{CATALOG_IRI}/vocab-alpha"));
+  let types: HashSet<&str> = alpha["@type"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
+  assert_eq!(types, HashSet::from([&*format!("{DCAT}Dataset"), "http://www.w3.org/ns/adms#Asset"]));
+  assert_eq!(alpha[&format!("{DCT}identifier")], json!([{"@value": "vocab-alpha"}]));
+  assert_eq!(alpha[&format!("{DCT}title")], json!([{"@value": "Vocab Alpha", "@language": "en"}]));
+  assert_eq!(ids(&alpha[&format!("{DCAT}type")]), [format!("{ASSETTYPE}c_89b4bdb7")]);
+  assert_eq!(
+    ids(&alpha["http://www.w3.org/ns/adms#status"]),
+    ["http://publications.europa.eu/resource/authority/concept-status/CURRENT"]
+  );
+  assert_eq!(ids(&alpha[&format!("{DCT}conformsTo")]), ["https://example.org/alpha#"]);
+  assert_eq!(alpha[&format!("{DCAT}version")], json!([{"@value": "2.1.0"}]));
+  assert_eq!(
+    ids(&alpha[&format!("{DCAT}landingPage")]),
+    [format!("{DOCS_BASE}/ontologies?ontology=vocab-alpha")]
+  );
+  assert_eq!(ids(&alpha[&format!("{FOAF}thumbnail")]), [format!("{DOCS_BASE}/assets/alpha-logo.png")]);
+  let creator = ids(&alpha[&format!("{DCT}creator")]);
+  assert_eq!(node(&nodes, &creator[0])[&format!("{FOAF}name")], json!([{"@value": "Alpha Standards Body"}]));
+  // Metadata about the source files is not catalog metadata.
+  assert!(alpha.get("http://schema.org/logo").is_none());
+  assert!(
+    nodes
+      .as_array()
+      .unwrap()
+      .iter()
+      .all(|n| n.get("http://purl.org/vocab/vann/preferredNamespacePrefix").is_none())
+  );
+
+  let distributions = ids(&alpha[&format!("{DCAT}distribution")]);
+  assert_eq!(distributions.len(), 4);
+  let mut formats = HashSet::new();
+  for d in &distributions {
+    let d = node(&nodes, d);
+    assert_eq!(d["@type"], json!([format!("{DCAT}Distribution")]));
+    assert_eq!(d[&format!("{DCAT}mediaType")].as_array().unwrap().len(), 1);
+    let url = &ids(&d[&format!("{DCAT}downloadURL")])[0];
+    assert!(url.starts_with(&format!("{DOCS_BASE}/vocab-alpha/v2.1.0/ontology.")), "{url}");
+    assert!(d[&format!("{DCT}title")][0]["@value"].as_str().unwrap().starts_with("Vocab Alpha 2.1.0 ("));
+    formats.insert(ids(&d[&format!("{DCT}format")])[0].clone());
+  }
+  assert_eq!(
+    formats,
+    ["RDF_TURTLE", "JSON_LD", "OWL", "RDF_N_TRIPLES"]
+      .map(|f| format!("http://publications.europa.eu/resource/authority/file-type/{f}"))
+      .into_iter()
+      .collect()
+  );
+
+  // No creator: the default illustration; no root: no conformsTo.
+  let beta = node(&nodes, &format!("{CATALOG_IRI}/vocab-beta"));
+  assert_eq!(ids(&beta[&format!("{FOAF}thumbnail")]), [format!("{DOCS_BASE}/assets/owl-illustration.svg")]);
+  assert!(beta.get(format!("{DCT}creator")).is_none() && beta.get(format!("{DCT}conformsTo")).is_none());
+
+  // A crosswalk lands on the crosswalk view.
+  let xwalk = node(&nodes, &format!("{CATALOG_IRI}/xwalk"));
+  assert_eq!(ids(&xwalk[&format!("{DCAT}landingPage")]), [format!("{DOCS_BASE}/crosswalk?crosswalk=xwalk")]);
+  assert_eq!(ids(&xwalk[&format!("{DCAT}type")]), [format!("{ASSETTYPE}c_bba2bb35")]);
+}
+
+#[test]
+fn every_version_is_a_dcat_version_of_its_asset() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = format!("{CATALOG_IRI}/vocab-alpha");
+  let (v200, v210) = (format!("{asset}/v2.0.0"), format!("{asset}/v2.1.0"));
+
+  let alpha = node(&nodes, &asset);
+  assert_eq!(ids(&alpha[&format!("{DCAT}hasVersion")]), [v200.clone(), v210.clone()]);
+  assert_eq!(ids(&alpha[&format!("{DCAT}hasCurrentVersion")]), [v210.clone()]);
+
+  let latest = node(&nodes, &v210);
+  assert_eq!(latest["@type"], json!([format!("{DCAT}Dataset")]));
+  assert_eq!(latest[&format!("{DCAT}version")], json!([{"@value": "2.1.0"}]));
+  assert_eq!(ids(&latest[&format!("{DCT}isVersionOf")]), [asset.clone()]);
+  assert_eq!(ids(&latest[&format!("{DCAT}previousVersion")]), [v200.clone()]);
+  assert_eq!(ids(&latest[&format!("{DCAT}distribution")]), ids(&alpha[&format!("{DCAT}distribution")]));
+
+  let earlier = node(&nodes, &v200);
+  assert!(earlier.get(format!("{DCAT}previousVersion")).is_none());
+  let urls: Vec<String> = ids(&earlier[&format!("{DCAT}distribution")])
+    .iter()
+    .flat_map(|d| ids(&node(&nodes, d)[&format!("{DCAT}downloadURL")]))
+    .collect();
+  assert_eq!(urls.len(), 4);
+  assert!(urls.iter().all(|u| u.starts_with(&format!("{DOCS_BASE}/vocab-alpha/v2.0.0/"))), "{urls:?}");
+}
+
+#[test]
+fn a_version_the_hub_publishes_links_its_dereferenceable_iri() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+  let nodes = json(out.path(), "catalog.jsonld");
+
+  let published = node(&nodes, &format!("{CATALOG_IRI}/ont-a/v1.0.0"));
+  assert_eq!(ids(&published[&format!("{FOAF}page")]), ["https://eona-x.eu/ontology/ont-a/v1.0.0"]);
+  let elsewhere = node(&nodes, &format!("{CATALOG_IRI}/vocab-alpha/v2.1.0"));
+  assert!(elsewhere.get(format!("{FOAF}page")).is_none());
+}
+
+#[test]
+fn the_assets_are_copied_and_nothing_else_is_written() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  build(src.path(), out.path());
+
+  assert_eq!(fs::read_to_string(out.path().join("assets/alpha-logo.png")).unwrap(), "png");
+  // No landing page, no per-slug redirects: the UI is the root.
+  assert!(!out.path().join("index.html").exists());
+  assert!(!out.path().join("vocab-alpha/index.html").exists());
+  assert!(!out.path().join("closure").exists(), "a directory without metadata.ttl is not published");
+  assert!(!out.path().join("tools").exists());
+}
+
+fn graph_of_turtle(data: &[u8]) -> HashSet<String> {
+  oxttl::TurtleParser::new().for_reader(data).map(|t| canonical(&t.unwrap())).collect()
+}
+
+fn graph_of_jsonld(data: &[u8]) -> HashSet<String> {
+  oxjsonld::JsonLdParser::new()
+    .for_reader(data)
+    .map(|q| canonical(&oxrdf::Triple::from(q.unwrap())))
+    .collect()
+}
+
+/// A triple as N-Triples with blank nodes renamed away, so graphs from
+/// different serializations compare equal when only labels differ.
+fn canonical(t: &oxrdf::Triple) -> String {
+  let term = |s: String| if s.starts_with("_:") { "_:b".to_string() } else { s };
+  format!("{} {} {}", term(t.subject.to_string()), t.predicate, term(t.object.to_string()))
+}
