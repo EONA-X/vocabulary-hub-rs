@@ -6,6 +6,10 @@
 #   scripts/deploy-sftp.sh <tree> additive   upload new and changed files,
 #                                            delete nothing (eona-x.eu: a
 #                                            version once published stays)
+#   scripts/deploy-sftp.sh <tree> site       mirror the Hub UI into a web
+#                                            root, never touching what other
+#                                            jobs own there: voc/, .htaccess,
+#                                            robots.txt, .ovhconfig
 #
 # Environment (GitLab CI variables scoped to the deploy environment):
 #   OVH_SFTP_HOST        ssh.clusterNNN.hosting.ovh.net
@@ -19,19 +23,21 @@
 #                        refused rather than defaulted: `mirror` into the wrong
 #                        directory deletes whatever is there. The root itself
 #                        (`.`) is accepted only for `additive`, which never
-#                        deletes (the dev root files).
+#                        deletes (the dev root files), and `site`, which never
+#                        deletes what it does not own.
 set -eu
 tree=$1; mode=$2
 case "$mode" in
   mirror) delete=--delete ;;
   additive) delete= ;;
-  *) echo "mode must be mirror or additive, not '$mode'" >&2; exit 2 ;;
+  site) delete="--delete --exclude '^voc/' --exclude '^\.htaccess\$' --exclude '^robots\.txt\$' --exclude '^\.ovhconfig\$'" ;;
+  *) echo "mode must be mirror, additive or site, not '$mode'" >&2; exit 2 ;;
 esac
 : "${OVH_SFTP_HOST:?}" "${OVH_SFTP_USER:?}" "${OVH_SFTP_PASSWORD:?}" "${OVH_SSH_KNOWN_HOSTS:?}"
 port=${OVH_SFTP_PORT:-22}
 dir=${OVH_SFTP_DIR:-}
-if [ "$dir" = . ] && [ "$mode" = additive ]; then
-  : # the account root, add-only
+if [ "$dir" = . ] && [ "$mode" != mirror ]; then
+  : # the account root: add-only, or mirroring only what the Hub UI owns
 else
   case "/$dir/" in
     //|/./|*/../*|*/./*|//*) echo "OVH_SFTP_DIR='$dir' must be a relative path below the account root, without . or .. segments (the root itself only with additive)" >&2; exit 2 ;;

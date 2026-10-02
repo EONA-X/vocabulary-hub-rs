@@ -5,13 +5,15 @@
 # eona-x.eu/, vocabulary.eona-x.eu/), in the layouts it is served from:
 #
 #   bare.test     both trees merged as the web root (what check-conneg.sh assumes)
-#   dev.test      dev-voc.eona-x.eu: a stand-in Hub UI dev build at the root,
-#                 root .htaccess = hosting/dev/.htaccess + hosting/router.htaccess,
+#   dev.test      dev-voc.eona-x.eu: a stand-in Hub UI build (and its docs/) at
+#                 the root, root .htaccess = hosting/dev/.htaccess +
+#                 hosting/router.htaccess + hosting/hub-ui.htaccess,
 #                 hosting/dev/robots.txt, and both trees merged under voc/
 #   prd.test      eona-x.eu: a WordPress-like web root with hosting/router.htaccess
 #                 above WordPress's block, and the eona-x.eu tree under voc/
 #   prd-voc.test  vocabulary.eona-x.eu: a stand-in Hub UI at the root,
-#                 hosting/router.htaccess, and the vocabulary.eona-x.eu tree under voc/
+#                 hosting/router.htaccess + hosting/hub-ui.htaccess, and the
+#                 vocabulary.eona-x.eu tree under voc/
 #
 # dev and prd share every path; only the root .htaccess and robots.txt differ.
 # All but bare.test are served over HTTPS (self-signed), as on OVH.
@@ -33,6 +35,7 @@ mkdir -p /srv/dev && merged /srv/dev/voc
 sh "$here"/scripts/dev-root.sh /srv/dev
 printf 'hub ui dev build\n' > /srv/dev/index.html
 mkdir -p /srv/dev/catalogue && printf 'hub ui catalogue\n' > /srv/dev/catalogue/index.html
+mkdir -p /srv/dev/docs && printf '[]\n' > /srv/dev/docs/catalog.jsonld
 
 mkdir -p /srv/prd /srv/prd/voc
 [ ! -d "$site/eona-x.eu" ] || cp -r "$site/eona-x.eu/." /srv/prd/voc/
@@ -54,7 +57,7 @@ WP
 
 mkdir -p /srv/prd-voc/voc
 [ ! -d "$site/vocabulary.eona-x.eu" ] || cp -r "$site/vocabulary.eona-x.eu/." /srv/prd-voc/voc/
-cp "$here"/hosting/router.htaccess /srv/prd-voc/.htaccess
+cat "$here"/hosting/router.htaccess "$here"/hosting/hub-ui.htaccess > /srv/prd-voc/.htaccess
 printf 'hub ui\n' > /srv/prd-voc/index.html
 
 # A version an earlier build published and this build no longer knows about:
@@ -194,6 +197,21 @@ for h in prd.test prd-voc.test dev.test; do
   got=$(status "https://$h/ontology/no-such-slug/v1.0.0")
   [ "${got%% *}" = 404 ] && ok "$h: an unknown slug is a 404" || ko "$h/ontology/no-such-slug/v1.0.0 -> $got (want 404)"
 done
+# The Hub UI routes client-side: a page path loads the app shell, its data
+# and the vocabularies never do.
+for h in dev.test prd-voc.test; do
+  shell=$(cat "/srv/${h%.test}/index.html")
+  for path in "/ontologies?ontology=netex" "/crosswalks?crosswalk=crosswalk-netex-datex" /ontologies; do
+    got="$(curl -sk "https://$h$path") $(status "https://$h$path")"
+    [ "$got" = "$shell 200 " ] && ok "$h$path loads the Hub UI shell" || ko "$h$path -> '$got' (want the Hub UI shell, 200)"
+  done
+  got=$(status "https://$h/docs/missing.json")
+  [ "${got%% *}" = 404 ] && ok "$h: a missing docs/ file is a 404" || ko "$h/docs/missing.json -> $got (want 404)"
+done
+got="$(curl -sk https://dev.test/docs/catalog.jsonld) $(curl -sk -o /dev/null -w '%{http_code} %{content_type}' https://dev.test/docs/catalog.jsonld)"
+[ "$got" = "[] 200 application/ld+json; charset=utf-8" ] && ok "dev serves the Hub UI data as JSON-LD" || ko "dev /docs/catalog.jsonld -> '$got'"
+got=$(curl -sk https://dev.test/docs/)
+case "$got" in *"Index of"*) ko "dev lists directories (/docs/)" ;; *) ok "dev lists no directories" ;; esac
 got=$(curl -sk https://prd.test/some/wordpress/page)
 [ "$got" = "wordpress front controller" ] && ok "other paths still reach WordPress" || ko "WordPress path -> '$got'"
 

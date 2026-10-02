@@ -1,5 +1,10 @@
 # bump (on demand) -> gates -> build -> hosting -> deploy.
 #
+# `ui` builds the Vocabulary Hub UI (the `ui/` submodule, eona-vocabulary-ui)
+# with the catalog data `build` writes to `docs/`; `deploy:dev` puts it at
+# dev-voc's root (`deploy:prd-vocabulary`: vocabulary.eona-x.eu's), next to
+# the vocabularies' voc/ folder and the root files, which it never touches.
+#
 # `public/` from `build` is the publication, one tree per production host:
 # public/eona-x.eu (Eona-X-authored vocabularies) and
 # public/vocabulary.eona-x.eu (vendored standards). `hosting` serves them in
@@ -127,13 +132,53 @@ build:
   extends: .rust
   stage: build
   script:
-    - cargo run --release --locked -- content/vocabularies public
+    # public/: the vocabularies; docs/: the Hub UI's catalog data.
+    - BUILT_AT="$CI_COMMIT_TIMESTAMP" cargo run --release --locked -- content/vocabularies public docs
     # The acceptance tree adds two fixture vocabularies, one per host, so every
     # hosting layout is exercised whatever upstream publishes.
     - cargo run --release --locked -- tests/fixtures/vocabularies acceptance-site
     - cp -r public/. acceptance-site/
   artifacts:
-    paths: [public, acceptance-site]
+    paths: [public, docs, acceptance-site]
+    expire_in: 1 week
+
+ui:
+  stage: build
+  needs: [build]
+  # eona-vocabulary-ui's own pins (its Dockerfile and publish workflow).
+  image: rust:1.97.1-bookworm
+  variables:
+    TRUNK_VERSION: 0.22.0-beta.2
+    WASM_BINDGEN_VERSION: 0.2.127
+  rules:
+    - if: '$BUMP_CONTENT == "true"'
+      when: never
+    - when: on_success
+  cache:
+    key: ui-$TRUNK_VERSION-$WASM_BINDGEN_VERSION
+    paths: [.cargo/bin, .cargo/registry, .cargo/git, ui/target]
+  script:
+    - rustup target add wasm32-unknown-unknown
+    # The release binaries (seconds, where `cargo install trunk` takes ~15 min),
+    # cached in .cargo/bin; built from source only if the download fails.
+    - export PATH="$CARGO_HOME/bin:$PATH" && mkdir -p "$CARGO_HOME/bin"
+    - get() { curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 "$1" | tar -xz -C "$2"; }
+    - |
+      if ! trunk --version 2>/dev/null | grep -qF "$TRUNK_VERSION"; then
+        get "https://github.com/trunk-rs/trunk/releases/download/v$TRUNK_VERSION/trunk-x86_64-unknown-linux-musl.tar.gz" "$CARGO_HOME/bin" \
+          || cargo install "trunk@$TRUNK_VERSION" --locked
+      fi
+    - |
+      if ! wasm-bindgen --version 2>/dev/null | grep -qF "$WASM_BINDGEN_VERSION"; then
+        w=wasm-bindgen-$WASM_BINDGEN_VERSION-x86_64-unknown-linux-musl
+        { get "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$WASM_BINDGEN_VERSION/$w.tar.gz" /tmp && cp /tmp/$w/wasm-bindgen "$CARGO_HOME/bin/"; } \
+          || cargo install "wasm-bindgen-cli@$WASM_BINDGEN_VERSION" --locked
+      fi
+    - trunk --version && wasm-bindgen --version
+    # Served at the web root: every link and fetch is relative to "/".
+    - cd ui && ./build.sh ../docs /
+  artifacts:
+    paths: [ui/dist]
     expire_in: 1 week
 
 hosting:
@@ -163,13 +208,15 @@ hosting:
 
 deploy:dev:
   extends: .deploy
-  needs: [build, hosting]
+  needs: [build, ui, hosting]
   environment:
     name: dev
     url: https://dev-voc.eona-x.eu/
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
   script:
+    # The Hub UI at the web root: mirrored, but never voc/ nor the root files.
+    - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh ui/dist site
     # dev-voc previews both hosts: their trees, merged (the build refuses a
     # path on both).
     - mkdir -p dev-site && cp -r public/eona-x.eu/. public/vocabulary.eona-x.eu/. dev-site/
@@ -183,6 +230,10 @@ deploy:dev:
     # dev-voc must never be indexed: crawlers may fetch it (robots.txt), and every
     # response says noindex.
     - "curl -sfI https://dev-voc.eona-x.eu/ | grep -qi '^x-robots-tag: noindex'"
+    # The Hub UI: its shell at the root and on its pages, its catalog data.
+    - "curl -sf https://dev-voc.eona-x.eu/ | grep -q 'eovoc-ui-'"
+    - "curl -sf 'https://dev-voc.eona-x.eu/ontologies?ontology=netex' | grep -q 'eovoc-ui-'"
+    - "curl -sf https://dev-voc.eona-x.eu/docs/catalog.jsonld | grep -qF 'https://vocabulary.eona-x.eu/catalog'"
 
 deploy:prd:
   extends: .deploy
@@ -199,7 +250,7 @@ deploy:prd:
 
 deploy:prd-vocabulary:
   extends: .deploy
-  needs: [build, hosting, "deploy:dev"]
+  needs: [build, ui, hosting, "deploy:dev"]
   environment:
     name: prd-vocabulary
     url: https://vocabulary.eona-x.eu/
@@ -207,5 +258,6 @@ deploy:prd-vocabulary:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
       when: manual
   script:
+    - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh ui/dist site
     - sh scripts/deploy-sftp.sh public/vocabulary.eona-x.eu additive
     - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public/vocabulary.eona-x.eu

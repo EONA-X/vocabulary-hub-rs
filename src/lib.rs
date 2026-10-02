@@ -10,6 +10,7 @@
 
 pub use eona_vocabulary_check::{ASSET_TYPES, Discovery, SITE_BASE, Skipped, Vocabulary, asset_type_alternation, discover};
 
+pub mod catalog;
 mod htaccess;
 mod html;
 pub mod site;
