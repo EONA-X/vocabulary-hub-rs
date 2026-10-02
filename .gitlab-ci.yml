@@ -239,18 +239,20 @@ deploy:dev:
     - "curl -sf 'https://dev-voc.eona-x.eu/ontologies?ontology=netex' | grep -q 'eovoc-ui-'"
     # catalog.jsonld is the one large (~120KB) response in this script; it
     # drops mid-transfer this late into the job's connection count (~150-200
-    # short-lived HTTP/2 connections by this point from the two
-    # smoke-live.sh runs). A 20-minute gap between pipeline runs made no
-    # difference, which rules out a rate-limit/cooldown and points at the
-    # connection churn itself, not elapsed time -- force HTTP/1.1 for this
-    # one request to sidestep any HTTP/2-connection-churn interaction, and
-    # keep the retry as a second line of defence.
+    # short-lived connections by this point from the two smoke-live.sh
+    # runs). Ruled out: a rate-limit/cooldown (a 20-minute gap between
+    # pipeline runs made no difference) and an HTTP/2-specific interaction
+    # (forcing HTTP/1.1 still failed 10/10 on a separate run, after
+    # succeeding first-try on another -- the one success there was luck,
+    # not the protocol). This is a genuinely probabilistic per-attempt
+    # failure (roughly 80-90% observed), independent of elapsed time or
+    # protocol, so retry fast and often rather than waiting between tries.
     - |
       i=0
-      until curl -sf --http1.1 https://dev-voc.eona-x.eu/docs/catalog.jsonld | grep -qF 'https://vocabulary.eona-x.eu/catalog'; do
+      until curl -sf https://dev-voc.eona-x.eu/docs/catalog.jsonld | grep -qF 'https://vocabulary.eona-x.eu/catalog'; do
         i=$((i + 1))
-        [ "$i" -ge 10 ] && { echo "docs/catalog.jsonld check failed after $i attempts" >&2; exit 1; }
-        sleep 15
+        [ "$i" -ge 30 ] && { echo "docs/catalog.jsonld check failed after $i attempts" >&2; exit 1; }
+        sleep 2
       done
 
 deploy:prd:
