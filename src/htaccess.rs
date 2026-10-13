@@ -26,6 +26,13 @@ Options -MultiViews -Indexes
 <IfModule mod_headers.c>
   Header merge Vary Accept
 </IfModule>
+# eona-x.eu's own WordPress .htaccess denies .html/.htm by extension (its
+# webshell-upload guard); the asset-type router rewrites every HTML
+# representation here internally to a real .html file, so without this
+# override the host that most needs the HTML variant is the one that 403s it.
+<FilesMatch \"\\.html?$\">
+  Require all granted
+</FilesMatch>
 RewriteEngine On
 ",
   );
