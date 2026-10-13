@@ -281,9 +281,30 @@ deploy:prd:
     - sh scripts/deploy-sftp.sh public/eona-x.eu additive
     - sh scripts/smoke-live.sh "$CI_ENVIRONMENT_URL" public/eona-x.eu
 
+# vocabulary.eona-x.eu's own account root, unlike eona-x.eu's, has no WordPress
+# (or other) .htaccess of its own to splice into: the SFTP account's root (.)
+# IS the site's web root. So router.htaccess + hub-ui.htaccess (stacked, in
+# that order, per hub-ui.htaccess's own header) can be deployed by CI like any
+# other additive content, instead of a by-hand install. deploy-sftp.sh's
+# "site" mode deliberately excludes .htaccess (it does not own it here); this
+# job owns it instead, additively, so it never fights that exclusion.
+deploy:prd-vocabulary-htaccess:
+  extends: .deploy
+  needs: []
+  environment:
+    name: prd-vocabulary
+    url: https://vocabulary.eona-x.eu/
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
+      when: manual
+  script:
+    - mkdir -p root-htaccess
+    - cat hosting/router.htaccess hosting/hub-ui.htaccess > root-htaccess/.htaccess
+    - OVH_SFTP_DIR=. sh scripts/deploy-sftp.sh root-htaccess additive
+
 deploy:prd-vocabulary:
   extends: .deploy
-  needs: [build, ui, hosting, "deploy:dev"]
+  needs: [build, ui, hosting, "deploy:dev", "deploy:prd-vocabulary-htaccess"]
   environment:
     name: prd-vocabulary
     url: https://vocabulary.eona-x.eu/
