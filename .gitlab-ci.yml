@@ -9,9 +9,12 @@
 # public/eona-x.eu (Eona-X-authored vocabularies) and
 # public/vocabulary.eona-x.eu (vendored standards). `hosting` serves them in
 # the layouts they will live in (bare, dev-voc.eona-x.eu, eona-x.eu behind
-# WordPress, vocabulary.eona-x.eu) from a stock httpd:2.4. On main,
-# `deploy:dev` mirrors both trees, merged, into dev-voc's voc/ folder and adds
-# dev-voc's root files (scripts/dev-root.sh); then — manual — `deploy:prd`
+# WordPress, vocabulary.eona-x.eu) from a stock httpd:2.4. On main and on
+# every MR pipeline, `deploy:dev` mirrors both trees, merged, into dev-voc's
+# voc/ folder and adds dev-voc's root files (scripts/dev-root.sh); a later
+# MR's pipeline overwrites whatever an earlier one left there, so dev-voc
+# reflects whichever MR deployed most recently, not necessarily main. Then
+# — manual, main only — `deploy:prd`
 # adds public/eona-x.eu to eona-x.eu's voc/ folder and `deploy:prd-vocabulary`
 # adds public/vocabulary.eona-x.eu to vocabulary.eona-x.eu's (additive: a
 # published version is never deleted). Each environment has its own SFTP
@@ -213,6 +216,7 @@ deploy:dev:
     name: dev
     url: https://dev-voc.eona-x.eu/
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $BUMP_CONTENT != "true"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $BUMP_CONTENT != "true"'
   script:
     # The Hub UI at the web root: mirrored, but never voc/ nor the root files.
@@ -233,7 +237,23 @@ deploy:dev:
     # The Hub UI: its shell at the root and on its pages, its catalog data.
     - "curl -sf https://dev-voc.eona-x.eu/ | grep -q 'eovoc-ui-'"
     - "curl -sf 'https://dev-voc.eona-x.eu/ontologies?ontology=netex' | grep -q 'eovoc-ui-'"
-    - "curl -sf https://dev-voc.eona-x.eu/docs/catalog.jsonld | grep -qF 'https://vocabulary.eona-x.eu/catalog'"
+    # catalog.jsonld is the one large (~120KB) response in this script; it
+    # drops mid-transfer this late into the job's connection count (~150-200
+    # short-lived connections by this point from the two smoke-live.sh
+    # runs). Ruled out: a rate-limit/cooldown (a 20-minute gap between
+    # pipeline runs made no difference) and an HTTP/2-specific interaction
+    # (forcing HTTP/1.1 still failed 10/10 on a separate run, after
+    # succeeding first-try on another -- the one success there was luck,
+    # not the protocol). This is a genuinely probabilistic per-attempt
+    # failure (roughly 80-90% observed), independent of elapsed time or
+    # protocol, so retry fast and often rather than waiting between tries.
+    - |
+      i=0
+      until curl -sf https://dev-voc.eona-x.eu/docs/catalog.jsonld | grep -qF 'https://vocabulary.eona-x.eu/catalog'; do
+        i=$((i + 1))
+        [ "$i" -ge 30 ] && { echo "docs/catalog.jsonld check failed after $i attempts" >&2; exit 1; }
+        sleep 2
+      done
 
 deploy:prd:
   extends: .deploy
