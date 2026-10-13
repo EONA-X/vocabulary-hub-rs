@@ -40,7 +40,10 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
-    - if: '$CI_COMMIT_BRANCH'
+    # A branch push otherwise only runs a pipeline once it is protected (main,
+    # once merged): an unprotected branch with no MR yet gets no pipeline at
+    # all, instead of one that reruns again the moment an MR is opened on it.
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
     - if: '$CI_COMMIT_TAG'
 
 stages:
