@@ -30,8 +30,11 @@ Options -MultiViews -Indexes
 # webshell-upload guard); the asset-type router rewrites every HTML
 # representation here internally to a real .html file, so without this
 # override the host that most needs the HTML variant is the one that 403s it.
+# Legacy Allow (not Require: this host's AllowOverride grants Limit, the
+# WordPress .htaccess's own equivalent override for its own files uses the
+# same legacy form, not AuthConfig).
 <FilesMatch \"\\.html?$\">
-  Require all granted
+  Allow from all
 </FilesMatch>
 RewriteEngine On
 ",
