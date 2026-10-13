@@ -2,7 +2,7 @@
 # Part of the web root's .htaccess wherever the Vocabulary Hub UI
 # (eona-vocabulary-ui) is served at the root, after the router block:
 #   dev  dev-voc.eona-x.eu      deployed by CI (scripts/dev-root.sh, deploy:dev)
-#   prd  vocabulary.eona-x.eu   installed by hand
+#   prd  vocabulary.eona-x.eu   deployed by CI (deploy:prd-vocabulary-htaccess)
 # The UI routes client-side (/ontologies?ontology=..., /crosswalk?crosswalk=...),
 # so a path with nothing behind it loads the app shell, which then shows the
 # page. Never for its data (docs/: a missing file is a 404 the UI reports) nor
@@ -13,6 +13,26 @@ AddType application/ld+json .jsonld
 AddType application/n-triples .nt
 AddType application/rdf+xml .owl
 AddCharset utf-8 .ttl .jsonld .nt .json
+# The UI's own Trunk build (eovoc-ui-*.wasm/.js, main-*.css, etc.): without an
+# explicit type the host served .wasm with no Content-Type at all, which
+# blocks WebAssembly.instantiateStreaming (the browser falls back to
+# buffering the whole file before compiling it). mod_deflate here keys off
+# MIME type same as it already does for .js/.css, so this also gets it
+# compressed over the wire for the first time.
+AddType application/wasm .wasm
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE application/wasm
+</IfModule>
+# Every one of these filenames is content-hashed by Trunk (a changed build is
+# a new name); index.html, which names the current hashes, is deliberately
+# NOT matched here so it keeps revalidating. Overrides this host's own
+# default (seen in practice: max-age=900 on .js/.css, nothing at all on
+# .wasm).
+<IfModule mod_headers.c>
+  <FilesMatch "\.(wasm|js|css)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
 <IfModule mod_rewrite.c>
 RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
