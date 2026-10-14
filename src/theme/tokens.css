@@ -1,7 +1,101 @@
-/* Placeholder design tokens: a later theming pass replaces these. */
+/*
+ * Design tokens: the teal brand ramp, type stack and spacing scale every
+ * other stylesheet in this theme builds on. Components reference these
+ * custom properties rather than hard-coded values, so a deployment can swap
+ * the whole look by overriding this file alone (see `HubConfig::stylesheets`
+ * in src/config.rs).
+ */
+
 :root {
+  /* Headings and code read in a monospace stack, evoking an IRI/CURIE
+     rather than prose; body copy keeps a normal system sans stack for
+     long-form annotations. */
+  --vh-font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --vh-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Brand ramp (light theme): 100 = lightest tint, 200 = default, 300 =
+     hover/clicked, 400/500 = darker still, used for the header/footer. */
+  --vh-brand-100: #99f6e4;
+  --vh-brand-200: #14b8a6;
+  --vh-brand-300: #0f766e;
+  --vh-brand-400: #115e59;
+  --vh-brand-500: #134e4a;
+  --vh-brand-default: var(--vh-brand-200);
+  --vh-brand-hover: var(--vh-brand-300);
+
+  /* Page surface and text. */
   --vh-surface-page: #ffffff;
   --vh-text-primary: #1a1a1a;
-  --vh-navy: #0b1f3a;
+  --vh-text-muted: #5b6472;
+  --vh-navy: var(--vh-brand-500);
   --vh-border-subtle: #d8dde3;
+  --vh-border-accent: var(--vh-brand-default);
+
+  /* Subtle blueprint/dot-grid texture painted behind long-form content. */
+  --vh-grid-dot: var(--vh-border-subtle);
+  --vh-grid-size: 24px;
+
+  /* Spacing scale used across components.css and ontology.css. */
+  --vh-space-xs: 0.35rem;
+  --vh-space-sm: 0.75rem;
+  --vh-space-md: 1.25rem;
+  --vh-space-lg: 2rem;
+
+  /* Badge tints, one pair per `rdf:type` kind the page can render
+     (see TermKind in src/components.rs). Kept apart from the brand ramp so
+     seven-plus term kinds stay visually distinct from each other. */
+  --vh-badge-ontology-bg: var(--vh-brand-100);
+  --vh-badge-ontology-fg: var(--vh-brand-500);
+  --vh-badge-class-bg: #dbeafe;
+  --vh-badge-class-fg: #1e40af;
+  --vh-badge-object-property-bg: #e0e7ff;
+  --vh-badge-object-property-fg: #3730a3;
+  --vh-badge-datatype-property-bg: #ede9fe;
+  --vh-badge-datatype-property-fg: #5b21b6;
+  --vh-badge-annotation-property-bg: #fef3c7;
+  --vh-badge-annotation-property-fg: #92400e;
+  --vh-badge-named-individual-bg: #ffe4e6;
+  --vh-badge-named-individual-fg: #9f1239;
+  --vh-badge-property-bg: #cffafe;
+  --vh-badge-property-fg: #155e75;
+  --vh-badge-default-bg: #f1f5f9;
+  --vh-badge-default-fg: #334155;
+}
+
+/* Dark-theme brand ramp: brighter than the light ramp so it still pops
+   against a dark background. This project is light-mode-first, so this
+   only takes effect for a visitor whose system prefers dark. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --vh-brand-100: #134e4a;
+    --vh-brand-200: #2dd4bf;
+    --vh-brand-300: #5eead4;
+    --vh-brand-400: #99f6e4;
+    --vh-brand-500: #0f766e;
+    --vh-brand-hover: var(--vh-brand-400);
+
+    --vh-surface-page: #0f1115;
+    --vh-text-primary: #e7eaee;
+    --vh-text-muted: #9aa4b2;
+    --vh-navy: #0a1210;
+    --vh-border-subtle: #2a2f37;
+
+    --vh-badge-ontology-bg: #0f3b38;
+    --vh-badge-ontology-fg: #5eead4;
+    --vh-badge-class-bg: #1e2f55;
+    --vh-badge-class-fg: #93c5fd;
+    --vh-badge-object-property-bg: #292966;
+    --vh-badge-object-property-fg: #a5b4fc;
+    --vh-badge-datatype-property-bg: #341f66;
+    --vh-badge-datatype-property-fg: #c4b5fd;
+    --vh-badge-annotation-property-bg: #4a3a0f;
+    --vh-badge-annotation-property-fg: #fcd34d;
+    --vh-badge-named-individual-bg: #4a1222;
+    --vh-badge-named-individual-fg: #fda4af;
+    --vh-badge-property-bg: #0e3a42;
+    --vh-badge-property-fg: #67e8f9;
+    --vh-badge-default-bg: #262b33;
+    --vh-badge-default-fg: #cbd5e1;
+  }
 }

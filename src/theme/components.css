@@ -1,22 +1,159 @@
-/* Placeholder component styles: a later theming pass replaces these. */
+/*
+ * Generic page and component styles: the page body, the numbered section
+ * heading, the `rdf:type` badge pill, the annotation description list, and
+ * the closing footer. Ontology-page-specific layout (header/main/term
+ * structure, the dot-grid texture, code/table accents) lives in
+ * ontology.css instead.
+ */
+
 body {
   background: var(--vh-surface-page);
   color: var(--vh-text-primary);
-  font-family: sans-serif;
+  font-family: var(--vh-font-sans);
+  line-height: 1.55;
   margin: 0;
 }
+
+a {
+  color: var(--vh-brand-400);
+}
+a:hover,
+a:focus {
+  color: var(--vh-brand-hover);
+}
+
+code {
+  font-family: var(--vh-font-mono);
+  font-size: 0.95em;
+}
+
+/* Numbered section heading, e.g. "01 · Ontology · Example Ontology" --
+   the kicker and number sit in the monospace stack like a line number or
+   IRI fragment, the title stays the heading sans/mono pairing below. */
 .section-head {
-  margin: 1.5rem 0 1rem;
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vh-space-xs) var(--vh-space-sm);
+  margin: var(--vh-space-lg) 0 var(--vh-space-md);
+  border-block-start: 2px solid var(--vh-border-accent);
+  padding-block-start: var(--vh-space-sm);
 }
-.badge {
-  display: inline-block;
-  border: 1px solid var(--vh-border-subtle);
-  border-radius: 999px;
-  padding: 0.1rem 0.5rem;
+.section-head__number {
+  color: var(--vh-brand-default);
+  font-family: var(--vh-font-mono);
+  font-weight: 600;
+}
+.section-head__kicker {
+  color: var(--vh-text-muted);
+  font-family: var(--vh-font-mono);
   font-size: 0.85em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
+.section-head__title {
+  font-family: var(--vh-font-mono);
+  font-size: 1.15em;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* `rdf:type` badge pill -- bordered and monospace, tinted per TermKind via
+   the --vh-badge-*-bg/fg tokens (tokens.css), with a `badge--default`
+   fallback for anything the theme does not recognise. */
+.badge {
+  background: var(--vh-badge-default-bg);
+  color: var(--vh-badge-default-fg);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: inline-block;
+  font-family: var(--vh-font-mono);
+  font-size: 0.8em;
+  line-height: 1.4;
+  padding: 0.05rem 0.6rem;
+}
+.badge--ontology {
+  background: var(--vh-badge-ontology-bg);
+  color: var(--vh-badge-ontology-fg);
+}
+.badge--class {
+  background: var(--vh-badge-class-bg);
+  color: var(--vh-badge-class-fg);
+}
+.badge--object-property {
+  background: var(--vh-badge-object-property-bg);
+  color: var(--vh-badge-object-property-fg);
+}
+.badge--datatype-property {
+  background: var(--vh-badge-datatype-property-bg);
+  color: var(--vh-badge-datatype-property-fg);
+}
+.badge--annotation-property {
+  background: var(--vh-badge-annotation-property-bg);
+  color: var(--vh-badge-annotation-property-fg);
+}
+.badge--named-individual {
+  background: var(--vh-badge-named-individual-bg);
+  color: var(--vh-badge-named-individual-fg);
+}
+.badge--property {
+  background: var(--vh-badge-property-bg);
+  color: var(--vh-badge-property-fg);
+}
+.badge--default {
+  background: var(--vh-badge-default-bg);
+  color: var(--vh-badge-default-fg);
+}
+
+/* Annotation description list: one <dt> label per predicate, one <dd> per
+   literal value (OntoAnnotation in src/components.rs). */
+.annotation__label {
+  color: var(--vh-text-muted);
+  font-family: var(--vh-font-mono);
+  font-size: 0.85em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  margin-block-start: var(--vh-space-sm);
+  text-transform: uppercase;
+}
+.annotation__value {
+  margin: 0.15rem 0 0;
+}
+.annotation__text {
+  margin-inline-end: var(--vh-space-xs);
+}
+.annotation__lang {
+  color: var(--vh-text-muted);
+  font-family: var(--vh-font-mono);
+  font-size: 0.8em;
+}
+.annotation__lang::before {
+  content: "[";
+}
+.annotation__lang::after {
+  content: "]";
+}
+
+/* Closing footer. */
 .icons-footer {
+  align-items: center;
   background: var(--vh-navy);
   color: #fff;
-  padding: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vh-space-sm);
+  justify-content: space-between;
+  padding: var(--vh-space-md);
+}
+.icons-footer__text {
+  margin: 0;
+  opacity: 0.85;
+}
+.icons-footer__link {
+  color: var(--vh-brand-100);
+  font-weight: 600;
+}
+.icons-footer__link:hover,
+.icons-footer__link:focus {
+  color: #fff;
 }

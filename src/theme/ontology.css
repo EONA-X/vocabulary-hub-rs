@@ -1,7 +1,106 @@
-/* Placeholder ontology-page styles: a later theming pass replaces these. */
-.annotation__label {
-  font-weight: 600;
+/*
+ * Ontology-page-specific layout: the header/main/term structure a rendered
+ * vocabulary page uses (src/html.rs), the dot-grid texture on the main
+ * content area, and the brand-accent borders on code and tables.
+ *
+ * `src/html.rs::PAGE_CSS` is inlined into every page's own `<head>` *after*
+ * this stylesheet and already fixes a handful of layout properties
+ * (`.voc-header{background,color}`, `.voc-main{max-width,margin,padding}`,
+ * `.voc-term{border-top,padding}`, …) via the `--vh-navy`/`--vh-border-subtle`
+ * tokens this theme defines — those tokens alone are enough to recolor them,
+ * so this file only adds properties PAGE_CSS does not already set, rather
+ * than redeclaring ones it would just win back at equal specificity.
+ */
+
+/* Thicker, brand-colored divider under the masthead instead of a plain
+   hairline (PAGE_CSS already sets its background/color). */
+.voc-header {
+  border-block-end: 2px solid var(--vh-border-accent);
 }
-.annotation__text {
-  margin-right: 0.35rem;
+.voc-header__title {
+  font-family: var(--vh-font-mono);
+  letter-spacing: -0.02em;
+}
+
+/* Subtle blueprint/dot-grid texture on the main content column -- a quiet
+   background-image layer, so it composes with PAGE_CSS's own layout rules
+   instead of overriding them. */
+.voc-main {
+  background-image: radial-gradient(var(--vh-grid-dot) 1px, transparent 1px);
+  background-position: calc(var(--vh-grid-size) / -2) calc(var(--vh-grid-size) / -2);
+  background-size: var(--vh-grid-size) var(--vh-grid-size);
+}
+
+.voc-formats {
+  color: var(--vh-text-muted);
+  font-size: 0.95em;
+}
+.voc-formats a {
+  font-family: var(--vh-font-mono);
+}
+
+/* Table of contents: plain list, brand-colored on hover/focus like any
+   other in-page link. */
+.voc-toc {
+  list-style: none;
+}
+.voc-toc li {
+  margin-block-end: var(--vh-space-xs);
+}
+
+/* One term entry per `<article>`; highlight it when it is the page's
+   `:target` (the reader followed a `#local-name` link straight to it),
+   echoing the brand-colored "current item" rail from the site nav. */
+.voc-term h3 {
+  font-family: var(--vh-font-mono);
+  letter-spacing: -0.01em;
+}
+.voc-term:target {
+  background: var(--vh-badge-ontology-bg);
+  border-inline-start: 3px solid var(--vh-border-accent);
+  padding-inline-start: var(--vh-space-sm);
+}
+
+.voc-members {
+  list-style: none;
+}
+.voc-members li {
+  margin-block-end: var(--vh-space-xs);
+}
+
+/* Inline code and fenced blocks: monospace stack plus a brand-tinted
+   border, closer to a terminal pane than a plain <pre>. */
+code {
+  font-family: var(--vh-font-mono);
+}
+pre {
+  background: var(--vh-badge-default-bg);
+  border: 1px solid var(--vh-border-subtle);
+  border-inline-start: 3px solid var(--vh-border-accent);
+  border-radius: 4px;
+  overflow-x: auto;
+  padding: var(--vh-space-sm);
+}
+pre code {
+  border: 0;
+  padding: 0;
+}
+
+/* Bordered, grid-lined tables -- plain <table>/<th>/<td>, not a styled
+   component, so without borders a multi-column table is hard to scan. */
+table {
+  border: 1px solid var(--vh-border-subtle);
+  border-collapse: collapse;
+  margin-block: var(--vh-space-md);
+  width: 100%;
+}
+th,
+td {
+  border: 1px solid var(--vh-border-subtle);
+  padding: var(--vh-space-xs) var(--vh-space-sm);
+  text-align: start;
+}
+th {
+  border-block-end: 2px solid var(--vh-border-accent);
+  font-family: var(--vh-font-mono);
 }
