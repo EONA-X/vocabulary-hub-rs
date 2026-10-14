@@ -34,13 +34,15 @@ fn the_router_routes_exactly_the_asset_types() {
 
 #[test]
 fn the_dev_overlay_leaves_the_canonical_host_of_a_vocabulary_to_its_slug() {
-  // A path no longer tells the host: vendored standards are on
-  // vocabulary.eona-x.eu under the same asset types. The overlay only gives the
-  // default (the Hub UI's host); each slug's .htaccess names its own.
-  let dev = fs::read_to_string("hosting/dev/.htaccess").unwrap();
+  // A path no longer tells the host: vendored standards are on a distinct
+  // host under the same asset types. The overlay only gives the default
+  // (the Hub UI's host); each slug's .htaccess names its own. This file is a
+  // worked example (hosting/examples/): {{VENDORED_HOST}} is the
+  // instantiation's own substitution point, not a literal host.
+  let dev = fs::read_to_string("hosting/examples/dev/.htaccess").unwrap();
   assert!(!dev.contains(&asset_type_alternation()), "{dev}");
-  assert!(dev.contains("E=CANONICAL_HOST:vocabulary.eona-x.eu"), "{dev}");
-  assert!(!dev.contains("E=CANONICAL_HOST:eona-x.eu"), "{dev}");
+  assert!(dev.contains("E=CANONICAL_HOST:{{VENDORED_HOST}}"), "{dev}");
+  assert!(!dev.contains("E=CANONICAL_HOST:{{SITE_BASE_HOST}}"), "{dev}");
 }
 
 #[test]
