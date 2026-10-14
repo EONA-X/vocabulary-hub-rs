@@ -1,0 +1,7 @@
+/* Placeholder ontology-page styles: a later theming pass replaces these. */
+.annotation__label {
+  font-weight: 600;
+}
+.annotation__text {
+  margin-right: 0.35rem;
+}

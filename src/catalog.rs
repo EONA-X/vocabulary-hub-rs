@@ -1,32 +1,27 @@
-//! The Vocabulary Hub catalog data: the `docs/` tree the Vocabulary Hub UI
-//! (eona-vocabulary-ui) fetches at runtime, built from eona-vocabularies-reference
-//! as it is. Every `<slug>/v<version>/` with a `metadata.ttl` is an asset
-//! version; the newest version of each slug is the one the UI lists.
+//! The Vocabulary Hub catalog data: a `docs/` tree a hub UI can fetch at
+//! runtime, built from a vocabularies checkout as it is. Every
+//! `<slug>/v<version>/` with a `metadata.ttl` is an asset version; the newest
+//! version of each slug is the one the UI lists.
 //!
 //! - `ontologies.json`, `alignments.json`: the UI's manifests, latest versions only.
 //! - `<slug>/v<version>/{ontology|alignment}.{ttl,jsonld,owl,nt}`: every version's
 //!   graph (the file its `metadata.ttl` declares), JSON-LD expanded as the UI parses it.
 //! - `catalog.jsonld`, `catalog.ttl`: a DCAT catalog of the assets, with DCAT
-//!   versioning, minted under `https://vocabulary.eona-x.eu/catalog`.
+//!   versioning, minted under [`HubConfig::catalog_iri`].
 //! - `assets/`: logos, copied as they are.
-//!
-//! Ported from eona-vocabulary-services' publish-vocabulary-catalog/generate.py.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use oxrdf::{BlankNode, Literal, NamedNode, NamedOrBlankNode, Term, Triple};
-use oxttl::TurtleParser;
 use rdf_sitegen::{Prefixes, to_turtle, write_if_changed};
 use serde_json::{Map, Value, json};
 
-use crate::{ASSET_TYPES, SITE_BASE, discover};
-
-pub const CATALOG_IRI: &str = "https://vocabulary.eona-x.eu/catalog";
-/// Where the UI serves the `docs/` tree; the UI resolves these IRIs to its own
-/// paths (`site_relative`).
-pub const DOCS_BASE: &str = "https://vocabulary.eona-x.eu/docs";
+use crate::config::HubConfig;
+use crate::discoverer::Discoverer;
+use crate::model::ASSET_TYPES;
+use crate::turtle::parse_turtle;
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
@@ -55,6 +50,8 @@ const FORMATS: [(&str, &str, &str, &str); 4] = [
 
 /// One `<slug>/v<version>/` with its metadata and graph.
 struct AssetVersion {
+  /// The base IRI minting this and every other asset's IRIs.
+  catalog_iri: String,
   slug: String,
   /// `v<version>`, the directory name.
   dir: String,
@@ -97,18 +94,21 @@ impl AssetVersion {
   }
 
   fn asset_iri(&self) -> String {
-    format!("{CATALOG_IRI}/{}", self.slug)
+    format!("{}/{}", self.catalog_iri, self.slug)
   }
 
   fn version_iri(&self) -> String {
-    format!("{CATALOG_IRI}/{}/{}", self.slug, self.dir)
+    format!("{}/{}/{}", self.catalog_iri, self.slug, self.dir)
   }
 }
 
 /// Writes the catalog data for the vocabularies at `vocabularies` into `out`,
-/// returning the written paths relative to `out`.
-pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str) -> Result<Vec<PathBuf>, String> {
-  let published: HashMap<String, String> = discover(vocabularies, SITE_BASE)?
+/// using `config`'s branding, IRIs and `discoverer` to tell which
+/// `<slug>/<version>` directories the hub itself publishes (and at which
+/// IRI). Returns the written paths relative to `out`.
+pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &HubConfig, discoverer: &dyn Discoverer) -> Result<Vec<PathBuf>, String> {
+  let published: HashMap<String, String> = discoverer
+    .discover(vocabularies, &config.site_base)?
     .published
     .into_iter()
     .map(|v| (v.dir_name, format!("{}{}/{}/{}", v.base, v.kind, v.slug, v.version)))
@@ -116,12 +116,12 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str) -> Result<
 
   // slug -> its versions, oldest first.
   let mut assets: BTreeMap<String, Vec<AssetVersion>> = BTreeMap::new();
-  for dir_name in eona_vocabulary_check::convention::version_dirs(vocabularies)? {
+  for dir_name in discoverer.version_dirs(vocabularies)? {
     let dir = vocabularies.join(&dir_name);
     if !dir.join("metadata.ttl").is_file() {
       continue;
     }
-    let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned())?;
+    let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
     assets.entry(v.slug.clone()).or_default().push(v);
   }
 
@@ -186,7 +186,7 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str) -> Result<
   write("ontologies.json".into(), &pretty(&json!({"generatedAt": built_at, "ontologies": ontologies})))?;
   write("alignments.json".into(), &pretty(&json!({"generatedAt": built_at, "alignments": alignments})))?;
 
-  let catalog = catalog_graph(&assets, built_at);
+  let catalog = catalog_graph(&assets, built_at, config);
   write("catalog.jsonld".into(), &expanded_jsonld(&catalog))?;
   let prefixes = [("dcat", DCAT), ("dcterms", DCT), ("foaf", FOAF), ("adms", "http://www.w3.org/ns/adms#")];
   write("catalog.ttl".into(), &to_turtle(&catalog, &Prefixes(&prefixes)))?;
@@ -204,11 +204,11 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str) -> Result<
   Ok(written)
 }
 
-fn read_version(dir: &Path, dir_name: &str, published: Option<String>) -> Result<AssetVersion, String> {
+fn read_version(dir: &Path, dir_name: &str, published: Option<String>, discoverer: &dyn Discoverer, catalog_iri: &str) -> Result<AssetVersion, String> {
   let (slug, version_dir) = dir_name.split_once('/').ok_or_else(|| format!("{dir_name}: not <slug>/<version>"))?;
-  let asset_iri = format!("{CATALOG_IRI}/{slug}");
+  let asset_iri = format!("{catalog_iri}/{slug}");
   let (meta, _) = parse_turtle(&dir.join("metadata.ttl"), &asset_iri)?;
-  let graph_file = eona_vocabulary_check::graph_file(dir)?;
+  let graph_file = discoverer.graph_file(dir)?;
   let (graph, prefixes) = parse_turtle(&dir.join(&graph_file), &format!("{asset_iri}/{version_dir}/"))?;
 
   let subject = NamedOrBlankNode::NamedNode(NamedNode::new_unchecked(&asset_iri));
@@ -286,6 +286,7 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<String>) -> Result
   }
 
   Ok(AssetVersion {
+    catalog_iri: catalog_iri.to_string(),
     slug: slug.to_string(),
     dir: version_dir.to_string(),
     version,
@@ -305,16 +306,12 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<String>) -> Result
 
 /// The DCAT catalog: the catalog, one dataset per asset (its latest metadata),
 /// one dataset per version, and each version's four distributions.
-fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str) -> Vec<Triple> {
+fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, config: &HubConfig) -> Vec<Triple> {
   let mut g = Graph::default();
-  let catalog = CATALOG_IRI;
+  let catalog = config.catalog_iri.as_str();
   g.iri(catalog, RDF_TYPE, &format!("{DCAT}Catalog"));
-  g.lang(catalog, &format!("{DCT}title"), "Eona-X Vocabulary Hub");
-  g.lang(
-    catalog,
-    &format!("{DCT}description"),
-    "The ontologies, shapes, vocabularies, code lists and crosswalks of the Eona-X data space.",
-  );
+  g.lang(catalog, &format!("{DCT}title"), &config.catalog_title);
+  g.lang(catalog, &format!("{DCT}description"), &config.catalog_description);
   g.plain(catalog, &format!("{DCT}modified"), built_at);
   // Vocabularies in slug order, then crosswalks.
   let (crosswalks, others): (Vec<_>, Vec<_>) = assets.values().filter_map(|versions| versions.last()).partition(|v| v.is_crosswalk());
@@ -331,14 +328,15 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str) -
     if let Some(ns) = &latest.namespace {
       g.iri(&asset, &format!("{DCT}conformsTo"), ns);
     }
+    let docs_base = &config.docs_base;
     let landing = if latest.is_crosswalk() {
-      format!("{DOCS_BASE}/crosswalks?crosswalk={}", latest.slug)
+      format!("{docs_base}/crosswalks?crosswalk={}", latest.slug)
     } else {
-      format!("{DOCS_BASE}/ontologies?ontology={}", latest.slug)
+      format!("{docs_base}/ontologies?ontology={}", latest.slug)
     };
     g.iri(&asset, &format!("{DCAT}landingPage"), &landing);
     let thumbnail = latest.logo.as_deref().unwrap_or(DEFAULT_THUMBNAIL);
-    g.iri(&asset, &format!("{FOAF}thumbnail"), &format!("{DOCS_BASE}/assets/{thumbnail}"));
+    g.iri(&asset, &format!("{FOAF}thumbnail"), &format!("{docs_base}/assets/{thumbnail}"));
     for (ext, ..) in FORMATS {
       g.iri(&asset, &format!("{DCAT}distribution"), &format!("{}/{ext}", latest.version_iri()));
     }
@@ -365,7 +363,7 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str) -
         g.iri(&version, &format!("{DCAT}distribution"), &distribution);
         g.iri(&distribution, RDF_TYPE, &format!("{DCAT}Distribution"));
         g.lang(&distribution, &format!("{DCT}title"), &format!("{title} {} ({label})", v.version));
-        g.iri(&distribution, &format!("{DCAT}downloadURL"), &format!("{DOCS_BASE}/{}", v.file(ext)));
+        g.iri(&distribution, &format!("{DCAT}downloadURL"), &format!("{docs_base}/{}", v.file(ext)));
         g.plain(&distribution, &format!("{DCAT}mediaType"), media_type);
         g.iri(&distribution, &format!("{DCT}format"), &format!("{FILE_TYPE}{file_type}"));
       }
@@ -431,20 +429,6 @@ fn roots(graph: &[Triple]) -> Vec<String> {
   let all = iris.clone();
   iris.retain(|iri| !all.iter().any(|other| other != iri && iri.starts_with(other)));
   iris.into_iter().map(String::from).collect()
-}
-
-/// A graph and its `@prefix` table.
-type Parsed = (Vec<Triple>, Vec<(String, String)>);
-
-fn parse_turtle(path: &Path, base: &str) -> Result<Parsed, String> {
-  let data = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-  let mut parser = TurtleParser::new().with_base_iri(base).map_err(|e| format!("{base}: {e}"))?.for_slice(&data);
-  let mut triples = Vec::new();
-  for t in parser.by_ref() {
-    triples.push(t.map_err(|e| format!("{}: {e}", path.display()))?);
-  }
-  let prefixes = parser.prefixes().map(|(p, iri)| (p.to_string(), iri.to_string())).collect();
-  Ok((triples, prefixes))
 }
 
 fn objects<'a>(triples: &'a [Triple], subject: &NamedOrBlankNode, predicate: &str) -> Vec<&'a Term> {

@@ -3,11 +3,13 @@ use std::path::{Path, PathBuf};
 
 use rdf_sitegen::{Prefixes, to_jsonld, to_turtle, write_if_changed};
 
-use crate::{Vocabulary, htaccess, html};
+use crate::config::HubConfig;
+use crate::model::Vocabulary;
+use crate::{htaccess, html};
 
 /// Writes every published representation of `vocabularies` under `out`, one
-/// tree per production host (`eona-x.eu/`, `vocabulary.eona-x.eu/`), returning
-/// the written paths relative to `out`. In each `{host}/` tree:
+/// tree per host they publish to, returning the written paths relative to
+/// `out`. In each `{host}/` tree:
 ///
 /// - `{asset-type}/{slug}/{version}.ttl` and `.jsonld` — the whole ontology document.
 ///   Terms are hash IRIs (`{asset-type}/{slug}/{version}#Term`), so the client strips the
@@ -15,9 +17,9 @@ use crate::{Vocabulary, htaccess, html};
 /// - `{asset-type}/{slug}/{version}.html` — the human page, one anchor per term, so the
 ///   same `#Term` lands on that term's section in a browser.
 /// - `{asset-type}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
-///   out of the site root because eona-x.eu serves other things too, and a
-///   root `.htaccess` would be shared with them.
-pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Vec<PathBuf>> {
+///   out of the site root so a host serving other things too can share its
+///   root `.htaccess`.
+pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig) -> std::io::Result<Vec<PathBuf>> {
   // Exists even when nothing is published — the normal case until upstream
   // mints a vocabulary under the site base.
   std::fs::create_dir_all(out)?;
@@ -40,7 +42,7 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
     for (ext, bytes) in [
       ("ttl", to_turtle(&v.triples, &prefixes)),
       ("jsonld", to_jsonld(&v.triples, &prefixes)),
-      ("html", html::render(v).into_bytes()),
+      ("html", html::render(v, config).into_bytes()),
     ] {
       // `with_extension` would eat `v0.0.1`'s last dot-segment.
       let rel = PathBuf::from(format!("{}.{ext}", base.display()));
@@ -51,9 +53,9 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary]) -> std::io::Result<Ve
 
   for (slug, (host, versions)) in versions_by_slug {
     let dir = PathBuf::from(host).join(&slug);
-    // The EONA-X UI toolkit's stylesheets, once per slug, shared by its versions'
+    // The configured stylesheets, once per slug, shared by its versions'
     // HTML pages (linked as `assets/<file>`).
-    for (file, css) in html::STYLESHEETS {
+    for (file, css) in config.stylesheets {
       let rel = dir.join("assets").join(file);
       write_if_changed(&out.join(&rel), css.as_bytes())?;
       written.push(rel);

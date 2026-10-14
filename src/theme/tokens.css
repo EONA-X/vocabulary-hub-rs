@@ -1,0 +1,7 @@
+/* Placeholder design tokens: a later theming pass replaces these. */
+:root {
+  --vh-surface-page: #ffffff;
+  --vh-text-primary: #1a1a1a;
+  --vh-navy: #0b1f3a;
+  --vh-border-subtle: #d8dde3;
+}

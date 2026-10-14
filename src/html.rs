@@ -1,36 +1,27 @@
-//! The human-readable representation of one vocabulary version, rendered with
-//! the EONA-X UI toolkit (`eona-ui-toolkit`) in its default EONA-X theme.
+//! The human-readable representation of one vocabulary version, rendered
+//! with this crate's own small set of Yew components ([`crate::components`]).
 //!
-//! The page is a Yew component composed of the toolkit's own components —
-//! `SectionHead`, `OntoBadge`, `OntoAnnotation`, `SimpleFooter` — rendered
-//! server-side to a static file, and styled by the toolkit's stylesheets, which
-//! [`crate::site::write_site`] ships next to it under `assets/`. One
-//! `<article id="{local name}">` per term under the namespace, so the hash IRI
-//! a person follows (`…/v0.0.1#GenericClaim`) scrolls to that term. No script:
-//! the host serves flat files and nothing else.
+//! The page is a Yew component rendered server-side to a static file, styled
+//! by the stylesheets a [`crate::config::HubConfig`] carries — [`crate::site::write_site`]
+//! ships them next to it under `assets/`. One `<article id="{local name}">`
+//! per term under the namespace, so the hash IRI a person follows
+//! (`…/v0.0.1#GenericClaim`) scrolls to that term. No script: the host serves
+//! flat files and nothing else.
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use eona_ui_toolkit::ontology::{LiteralValue, TermKind};
-use eona_ui_toolkit::{BadgeVariant, LOGO_SVG, NavLink, OntoAnnotation, OntoBadge, SectionHead, SimpleFooter};
 use rdf_sitegen::{Indices, Ontology, RDF_TYPE, RDFS_COMMENT, RDFS_LABEL, UNTAGGED, subjects_in_namespace};
 use yew::{AttrValue, Html, Properties, function_component, html};
 
-use crate::Vocabulary;
+use crate::components::{BadgeVariant, LiteralValue, NavLink, OntoAnnotation, OntoBadge, SectionHead, SimpleFooter, TermKind};
+use crate::config::HubConfig;
+use crate::model::Vocabulary;
 
 const DCT_TITLE: &str = "http://purl.org/dc/terms/title";
 const DCT_DESCRIPTION: &str = "http://purl.org/dc/terms/description";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 const SKOS: &str = "http://www.w3.org/2004/02/skos/core#";
-
-/// The toolkit stylesheets a page links, in the toolkit's documented order,
-/// with their content; `write_site` writes them under `assets/`.
-pub const STYLESHEETS: [(&str, &str); 3] = [
-  ("tokens.css", eona_ui_toolkit::TOKENS_CSS),
-  ("components.css", eona_ui_toolkit::COMPONENTS_CSS),
-  ("ontology.css", eona_ui_toolkit::ONTOLOGY_CSS),
-];
 
 /// Annotations shown under a term, in reading order.
 const TERM_NOTES: [(&str, &str); 6] = [
@@ -42,14 +33,11 @@ const TERM_NOTES: [(&str, &str); 6] = [
   ("http://www.w3.org/2004/02/skos/core#example", "Example"),
 ];
 
-/// Layout only — colours, type and components come from the toolkit's tokens
-/// and stylesheets. Its first rule cancels the space `components.css` reserves
-/// at the top of `body` for the portal's fixed `SiteHeader`, which this page
-/// does not use; the header is a plain navy bar matching `SimpleFooter`.
+/// Layout only — colours, type and components come from the configured
+/// stylesheets.
 const PAGE_CSS: &str = "
-html>body{padding-top:0}
-body{background:var(--eona-surface-page);color:var(--eona-text-primary)}
-.voc-header{background:var(--eona-navy);color:#fff}
+body{margin:0}
+.voc-header{background:var(--vh-navy, #0b1f3a);color:#fff}
 .voc-header__inner{display:flex;align-items:center;gap:.75rem;max-width:56rem;margin:0 auto;padding:.9rem 16px}
 .voc-header a{display:inline-flex;color:inherit}
 .voc-header svg{width:38px;height:36px}
@@ -58,15 +46,15 @@ body{background:var(--eona-surface-page);color:var(--eona-text-primary)}
 .voc-main code{overflow-wrap:anywhere}
 .voc-formats{margin:1rem 0 2rem}
 .voc-toc{columns:2 14rem;padding-left:1.1rem;margin-bottom:2rem}
-.voc-term{border-top:1px solid var(--eona-border-subtle);padding:1.25rem 0;scroll-margin-top:1rem}
+.voc-term{border-top:1px solid var(--vh-border-subtle, #d8dde3);padding:1.25rem 0;scroll-margin-top:1rem}
 .voc-term h3{margin:0 0 .35rem}
 .voc-term__id{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:0 0 .75rem}
 .voc-term dl{margin:0}
 .voc-members{margin:.25rem 0 0;padding-left:1.1rem}
 ";
 
-pub fn render(v: &Vocabulary) -> String {
-  let page = Rc::new(PageData::build(v));
+pub fn render(v: &Vocabulary, config: &HubConfig) -> String {
+  let page = Rc::new(PageData::build(v, config));
   let runtime = tokio::runtime::Builder::new_current_thread()
     .build()
     .expect("a single-thread runtime for Yew's server renderer");
@@ -75,7 +63,8 @@ pub fn render(v: &Vocabulary) -> String {
       .hydratable(false)
       .render(),
   );
-  let stylesheets: String = STYLESHEETS
+  let stylesheets: String = config
+    .stylesheets
     .iter()
     .map(|(file, _)| format!("<link rel=\"stylesheet\" href=\"assets/{file}\">\n"))
     .collect();
@@ -102,8 +91,8 @@ pub fn render(v: &Vocabulary) -> String {
   )
 }
 
-/// Everything the page shows, extracted from the graph up front so the
-/// component is a pure function of its props.
+/// Everything the page shows, extracted from the graph and the config up
+/// front so the component is a pure function of its props.
 #[derive(PartialEq)]
 struct PageData {
   title: String,
@@ -112,6 +101,11 @@ struct PageData {
   namespace: String,
   overview: Vec<(String, Vec<LiteralValue>)>,
   terms: Vec<TermData>,
+  brand_name: String,
+  brand_link: String,
+  brand_link_label: String,
+  brand_mark_svg: &'static str,
+  footer_text: String,
 }
 
 #[derive(PartialEq)]
@@ -125,7 +119,7 @@ struct TermData {
 }
 
 impl PageData {
-  fn build(v: &Vocabulary) -> PageData {
+  fn build(v: &Vocabulary, config: &HubConfig) -> PageData {
     let idx = Indices::build(&Ontology { triples: v.triples.clone() });
     let ns = v.namespace.as_str();
     let plain = |s: &str| vec![LiteralValue::new(s.to_string(), None, None)];
@@ -170,6 +164,11 @@ impl PageData {
       namespace: v.namespace.clone(),
       overview: overview.into_iter().map(|(h, vals)| (h.to_string(), vals)).collect(),
       terms,
+      brand_name: config.brand_name.clone(),
+      brand_link: config.brand_link.clone(),
+      brand_link_label: config.brand_link_label.clone(),
+      brand_mark_svg: config.brand_mark_svg,
+      footer_text: config.footer_text.clone(),
     }
   }
 }
@@ -182,14 +181,13 @@ struct PageProps {
 #[function_component]
 fn VocabularyPage(props: &PageProps) -> Html {
   let p = &props.page;
-  // The toolkit's EONA-X mark, inlined (it ships as an SVG document).
-  let logo = Html::from_html_unchecked(AttrValue::from(LOGO_SVG[LOGO_SVG.find("<svg").unwrap_or(0)..].to_string()));
+  let logo = Html::from_html_unchecked(AttrValue::from(p.brand_mark_svg));
   let term_count = format!("{} terms", p.terms.len());
   html! {
     <>
       <header class="voc-header">
         <div class="voc-header__inner">
-          <a href="https://eona-x.eu/" aria-label="EONA-X">{ logo }</a>
+          <a href={p.brand_link.clone()} aria-label={p.brand_name.clone()}>{ logo }</a>
           <span class="voc-header__title">{ "Vocabulary Hub" }</span>
         </div>
       </header>
@@ -214,7 +212,7 @@ fn VocabularyPage(props: &PageProps) -> Html {
           { for p.terms.iter().map(term) }
         }
       </main>
-      <SimpleFooter text="EONA-X Vocabulary Hub" link={NavLink::new("https://eona-x.eu/", "eona-x.eu")} />
+      <SimpleFooter text={AttrValue::from(p.footer_text.clone())} link={NavLink::new(p.brand_link.clone(), p.brand_link_label.clone())} />
     </>
   }
 }
@@ -243,7 +241,7 @@ fn term(t: &TermData) -> Html {
   }
 }
 
-/// The toolkit's badge hue for an `rdf:type`.
+/// The badge hue for an `rdf:type`.
 fn term_kind(iri: &str) -> TermKind {
   match iri.strip_prefix(OWL) {
     Some("Ontology") => TermKind::Ontology,

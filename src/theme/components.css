@@ -1,0 +1,22 @@
+/* Placeholder component styles: a later theming pass replaces these. */
+body {
+  background: var(--vh-surface-page);
+  color: var(--vh-text-primary);
+  font-family: sans-serif;
+  margin: 0;
+}
+.section-head {
+  margin: 1.5rem 0 1rem;
+}
+.badge {
+  display: inline-block;
+  border: 1px solid var(--vh-border-subtle);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.85em;
+}
+.icons-footer {
+  background: var(--vh-navy);
+  color: #fff;
+  padding: 1rem;
+}
