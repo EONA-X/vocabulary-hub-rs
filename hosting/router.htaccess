@@ -1,10 +1,10 @@
 # BEGIN eona-x vocabulary hub
 # Part of the web root's .htaccess in each environment:
-#   prd  eona-x.eu          installed once, by hand, at the TOP of
-#                           <WP_ROOT>/.htaccess, above "# BEGIN WordPress"
-#                           (WordPress rewrites its own block, never this one)
-#   dev  dev-voc.eona-x.eu  after hosting/dev/.htaccess, deployed by CI
-#                           (scripts/dev-root.sh, deploy:dev)
+#   prd  {{SITE_BASE_HOST}}  installed once, by hand, at the TOP of
+#                            <WP_ROOT>/.htaccess, above "# BEGIN WordPress"
+#                            (WordPress rewrites its own block, never this one)
+#   dev  dev-voc.eona-x.eu   after a dev overlay (see hosting/examples/ for a
+#                            worked example), deployed by CI
 # Published IRIs are /<asset-type>/<slug>/<version>, <asset-type> one of
 # ontology, shape, crosswalk, vocabulary, codelist (the build's ASSET_TYPES).
 # Their files are deployed to voc/<asset-type>/<slug>/; this maps the published

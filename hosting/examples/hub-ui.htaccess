@@ -1,8 +1,9 @@
+# WORKED EXAMPLE (see hosting/examples/README.md).
 # BEGIN eona-x vocabulary hub UI
-# Part of the web root's .htaccess wherever the Vocabulary Hub UI
-# (eona-vocabulary-ui) is served at the root, after the router block:
-#   dev  dev-voc.eona-x.eu      deployed by CI (scripts/dev-root.sh, deploy:dev)
-#   prd  vocabulary.eona-x.eu   deployed by CI (deploy:prd-vocabulary-htaccess)
+# Part of the web root's .htaccess wherever a Vocabulary Hub UI frontend is
+# served at the root, after the router block:
+#   dev  dev-voc.eona-x.eu      deployed by CI (see hosting/examples/dev/)
+#   prd  {{VENDORED_HOST}}      deployed by CI
 # The UI routes client-side (/ontologies?ontology=..., /crosswalk?crosswalk=...),
 # so a path with nothing behind it loads the app shell, which then shows the
 # page. Never for its data (docs/: a missing file is a 404 the UI reports) nor

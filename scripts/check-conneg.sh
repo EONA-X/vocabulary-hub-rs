@@ -9,14 +9,17 @@
 # front adds to URLs it builds itself).
 #
 # {publication-base} is the production host minting the IRIs: https://eona-x.eu/
-# (the default) for Eona-X-authored vocabularies, https://vocabulary.eona-x.eu/
-# for vendored standards.
+# for Eona-X-authored vocabularies, https://vocabulary.eona-x.eu/ for vendored
+# standards, in that deployment; always required -- this script makes no
+# assumption about which host that is.
 #
-#   scripts/check-conneg.sh <base-url> <asset-type>/<slug> <version> [<publication-base>]
-#   scripts/check-conneg.sh https://eona-x.eu/ vocabulary/odrl-profile v0.0.1
+#   scripts/check-conneg.sh <base-url> <asset-type>/<slug> <version> <publication-base>
+#   scripts/check-conneg.sh https://eona-x.eu/ vocabulary/odrl-profile v0.0.1 https://eona-x.eu/
 #   scripts/check-conneg.sh https://dev-voc.eona-x.eu/ ontology/netex v0.2.0 https://vocabulary.eona-x.eu/
 set -eu
-base=${1%/}; slug=$2; version=$3; publication=${4:-https://eona-x.eu/}; publication=${publication%/}
+base=${1%/}; slug=$2; version=$3
+publication=${4:?publication-base is required: the production host minting the IRIs, e.g. https://eona-x.eu/}
+publication=${publication%/}
 # CURL_OPTS=-k for a self-signed test certificate.
 curl() { command curl ${CURL_OPTS:-} "$@"; }
 url="$base/$slug/$version"
