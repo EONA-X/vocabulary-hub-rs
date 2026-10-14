@@ -4,7 +4,7 @@
 
 use std::fs;
 
-use vocabulary_hub_build::{ASSET_TYPES, asset_type_alternation};
+use vocabulary_hub_rs::model::{ASSET_TYPES, asset_type_alternation};
 
 #[test]
 fn the_alternation_lists_every_asset_type_in_order() {

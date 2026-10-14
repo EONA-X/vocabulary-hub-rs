@@ -1,7 +1,6 @@
-//! The Vocabulary Hub's catalog data (the UI's `docs/` tree), built from
-//! eona-vocabularies-reference as it is: every `<slug>/v<version>/` with a
-//! `metadata.ttl`. Ported from eona-vocabulary-services'
-//! publish-vocabulary-catalog/generate.py; fixtures modelled on its own
+//! A hub's catalog data (a UI's `docs/` tree), built from a vocabularies
+//! checkout as it is: every `<slug>/v<version>/` with a `metadata.ttl`.
+//! Fixtures modelled on eona-vocabulary-services' own test data
 //! (`vocab-alpha`, `vocab-beta`).
 
 use std::collections::HashSet;
@@ -9,13 +8,32 @@ use std::fs;
 use std::path::Path;
 
 use serde_json::{Value, json};
-use vocabulary_hub_build::catalog::{CATALOG_IRI, DOCS_BASE, write_catalog};
+use vocabulary_hub_rs::catalog::write_catalog;
+use vocabulary_hub_rs::config::HubConfig;
+use vocabulary_hub_rs::default_discovery::DefaultDiscoverer;
 
 const BUILT_AT: &str = "2026-10-01 12:00 UTC";
 const DCT: &str = "http://purl.org/dc/terms/";
 const DCAT: &str = "http://www.w3.org/ns/dcat#";
 const FOAF: &str = "http://xmlns.com/foaf/0.1/";
 const ASSETTYPE: &str = "http://publications.europa.eu/resource/authority/asset-classification/";
+
+const SITE_BASE: &str = "https://hub.example/";
+const CATALOG_IRI: &str = "https://catalog.example/catalog";
+const DOCS_BASE: &str = "https://catalog.example/docs";
+
+/// A `HubConfig` fixture distinct enough from the crate's own defaults that
+/// tests asserting on its fields can't be satisfied by accident.
+fn config() -> HubConfig {
+  HubConfig {
+    site_base: SITE_BASE.to_string(),
+    catalog_iri: CATALOG_IRI.to_string(),
+    docs_base: DOCS_BASE.to_string(),
+    catalog_title: "Example Vocabulary Hub".to_string(),
+    catalog_description: "The ontologies, shapes, vocabularies, code lists and crosswalks of the example data space.".to_string(),
+    ..HubConfig::default()
+  }
+}
 
 fn write(root: &Path, file: &str, content: &str) {
   let path = root.join(file);
@@ -53,7 +71,7 @@ al:size a owl:DatatypeProperty ; rdfs:domain al:Thing ; rdfs:range <http://www.w
 }
 
 fn fixture(root: &Path) {
-  // Two versions of a vendored standard, with its upstream body and logo.
+  // Two versions of an upstream-credited ontology, with its upstream body and logo.
   let upstream = "<> dcterms:creator [ a foaf:Agent ; foaf:name \"Alpha Standards Body\" ] .\n<> schema:logo \"alpha-logo.png\" .\n[] vann:preferredNamespacePrefix \"al\" ; vann:preferredNamespaceUri \"https://example.org/alpha#\" .";
   for version in ["2.0.0", "2.1.0"] {
     write(
@@ -63,7 +81,8 @@ fn fixture(root: &Path) {
     );
     write(root, &format!("vocab-alpha/v{version}/ontology.ttl"), &alpha_ontology(version));
   }
-  // A shapes graph: no root, no creator.
+  // A shapes graph: no root (so the hub's own Discoverer never publishes
+  // it), no creator.
   write(
     root,
     "vocab-beta/v1.0.0/metadata.ttl",
@@ -74,27 +93,17 @@ fn fixture(root: &Path) {
     "vocab-beta/v1.0.0/ontology.ttl",
     "@prefix sh: <http://www.w3.org/ns/shacl#> .\n<https://example.org/beta/S> a sh:NodeShape .\n",
   );
-  // ont-a is published by the hub on eona-x.eu; ont-b declares its own graph file.
+  // ont-a has a single root, so the hub's own Discoverer publishes it under SITE_BASE.
   write(root, "ont-a/v1.0.0/metadata.ttl", &metadata("ont-a", "1.0.0", "c_89b4bdb7", "CURRENT", ""));
   write(
     root,
     "ont-a/v1.0.0/ontology.ttl",
-    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://eona-x.eu/ontology/ont-a/v1.0.0#> a owl:Ontology ; owl:versionInfo \"1.0.0\" .\n<https://eona-x.eu/ontology/ont-a/v1.0.0#X> a owl:Class .\n",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/ont-a#> a owl:Ontology ; owl:versionInfo \"1.0.0\" .\n<https://example.org/ont-a#X> a owl:Class .\n",
   );
+  write(root, "ont-b/v1.0.0/metadata.ttl", &metadata("ont-b", "1.0.0", "c_cdd11291", "CURRENT", ""));
   write(
     root,
-    "ont-b/v1.0.0/metadata.ttl",
-    &metadata(
-      "ont-b",
-      "1.0.0",
-      "c_cdd11291",
-      "CURRENT",
-      "<> dcat:distribution [ a dcat:Distribution ; dcat:downloadURL <B-Model.ttl> ] .",
-    ),
-  );
-  write(
-    root,
-    "ont-b/v1.0.0/B-Model.ttl",
+    "ont-b/v1.0.0/ontology.ttl",
     "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .\n<https://example.org/ont-b#> a skos:ConceptScheme .\n<https://example.org/ont-b#X> a skos:Concept .\n",
   );
   write(root, "xwalk/v0.1.0/metadata.ttl", &metadata("A to B", "0.1.0", "c_bba2bb35", "CURRENT", ""));
@@ -104,9 +113,9 @@ fn fixture(root: &Path) {
     r#"@prefix void: <http://rdfs.org/ns/void#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
-<https://example.org/x/a-b> a void:Linkset ; rdfs:seeAlso <https://example.org/ont-b#X>, <https://eona-x.eu/ontology/ont-a/v1.0.0#X> .
+<https://example.org/x/a-b> a void:Linkset ; rdfs:seeAlso <https://example.org/ont-b#X>, <https://example.org/ont-a#X> .
 <https://example.org/x/m1> a <http://www.w3.org/1999/02/22-rdf-syntax-ns#Statement> ;
-  <http://www.w3.org/1999/02/22-rdf-syntax-ns#subject> <https://eona-x.eu/ontology/ont-a/v1.0.0#X> ;
+  <http://www.w3.org/1999/02/22-rdf-syntax-ns#subject> <https://example.org/ont-a#X> ;
   <http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate> skos:exactMatch ;
   <http://www.w3.org/1999/02/22-rdf-syntax-ns#object> <https://example.org/ont-b#X> .
 "#,
@@ -124,7 +133,7 @@ fn fixture(root: &Path) {
 
 fn build(root: &Path, out: &Path) {
   fixture(root);
-  write_catalog(root, out, BUILT_AT).unwrap();
+  write_catalog(root, out, BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
 }
 
 fn json(out: &Path, file: &str) -> Value {
@@ -170,7 +179,6 @@ fn ontologies_json_lists_the_latest_version_of_every_asset_but_the_crosswalks_in
   assert_eq!(alpha["kind"], "ontology");
   assert_eq!(alpha["downloads"], downloads("vocab-alpha/v2.1.0", "ontology"));
 
-  // A declared graph file is published under the usual name.
   let b = &manifest["ontologies"][1];
   assert_eq!(b["kind"], "codelist");
   assert_eq!(b["namespace"], "https://example.org/ont-b#");
@@ -217,7 +225,7 @@ fn every_version_is_published_in_four_formats_that_all_carry_the_source_graph() 
   for (dir, source, name) in [
     ("vocab-alpha/v2.0.0", "ontology.ttl", "ontology"),
     ("vocab-alpha/v2.1.0", "ontology.ttl", "ontology"),
-    ("ont-b/v1.0.0", "B-Model.ttl", "ontology"),
+    ("ont-b/v1.0.0", "ontology.ttl", "ontology"),
     ("xwalk/v0.1.0", "alignment.ttl", "alignment"),
   ] {
     let source = graph_of_turtle(&fs::read(src.path().join(dir).join(source)).unwrap());
@@ -266,18 +274,19 @@ fn the_json_ld_is_expanded_one_node_per_subject_as_the_ui_parses_it() {
 }
 
 #[test]
-fn the_catalog_is_a_dcat_catalog_under_vocabulary_eona_x_eu() {
+fn the_catalog_is_a_dcat_catalog_under_the_configured_catalog_iri() {
   let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
   build(src.path(), out.path());
 
-  assert_eq!(CATALOG_IRI, "https://vocabulary.eona-x.eu/catalog");
-  assert_eq!(DOCS_BASE, "https://vocabulary.eona-x.eu/docs");
   let nodes = json(out.path(), "catalog.jsonld");
 
   let catalog = node(&nodes, CATALOG_IRI);
   assert_eq!(catalog["@type"], json!([format!("{DCAT}Catalog")]));
   assert_eq!(catalog[&format!("{DCT}modified")], json!([{"@value": BUILT_AT}]));
-  assert!(catalog[&format!("{DCT}title")][0]["@value"].is_string());
+  assert_eq!(
+    catalog[&format!("{DCT}title")],
+    json!([{"@value": "Example Vocabulary Hub", "@language": "en"}])
+  );
   assert_eq!(
     ids(&catalog[&format!("{DCAT}dataset")]),
     ["ont-a", "ont-b", "vocab-alpha", "vocab-beta", "xwalk"].map(|s| format!("{CATALOG_IRI}/{s}")),
@@ -392,9 +401,13 @@ fn a_version_the_hub_publishes_links_its_dereferenceable_iri() {
   build(src.path(), out.path());
   let nodes = json(out.path(), "catalog.jsonld");
 
+  // ont-a has a single root, so the hub's own Discoverer publishes it under
+  // SITE_BASE and the catalog links that dereferenceable IRI.
   let published = node(&nodes, &format!("{CATALOG_IRI}/ont-a/v1.0.0"));
-  assert_eq!(ids(&published[&format!("{FOAF}page")]), ["https://eona-x.eu/ontology/ont-a/v1.0.0"]);
-  let elsewhere = node(&nodes, &format!("{CATALOG_IRI}/vocab-alpha/v2.1.0"));
+  assert_eq!(ids(&published[&format!("{FOAF}page")]), [format!("{SITE_BASE}ontology/ont-a/v1.0.0")]);
+  // vocab-beta has no owl:Ontology/skos:ConceptScheme root, so the hub's own
+  // Discoverer never publishes it: no dereferenceable IRI to link.
+  let elsewhere = node(&nodes, &format!("{CATALOG_IRI}/vocab-beta/v1.0.0"));
   assert!(elsewhere.get(format!("{FOAF}page")).is_none());
 }
 
