@@ -1,163 +1,184 @@
-# vocabulary-hub.eona-x.eu
+# vocabulary-hub-rs
 
-Site/publishing project for the **Vocabulary Hub's** presence on
-[https://eona-x.eu/](https://eona-x.eu/).
+A small, host-agnostic Rust static-site generator for publishing RDF
+vocabularies (ontologies, SHACL/application-profile shapes, crosswalks,
+controlled vocabularies, code lists) as a content-negotiated site: every
+version of every asset is served as Turtle, JSON-LD, and a human-readable
+HTML page, routed through a plain Apache `.htaccess` convention. It also
+builds a DCAT catalog of everything it finds, for a catalog browser or any
+other consumer to fetch at runtime.
 
-This is where the Vocabulary Hub's eona-x.eu-facing pages get **generated/published from**
-(the app/build side). Its content — the ontology/vocabulary files it publishes — lives in the
-sibling repo [`content.vocabulary-hub.eona-x.eu`](https://gitlab.eona-x.org/eona-x/semantic-hub/content.vocabulary-hub.eona-x.eu),
-mirroring the existing `developer.eona-x.eu` / `content.developer.eona-x.eu` split.
+It has no opinion about who you are or what your vocabularies look like
+beyond a plain directory convention: `<slug>/<version>/` directories, each
+with a graph file. Branding, hosting, and publication rules are all
+injected by the caller — this crate ships sane, clearly-labelled defaults so
+`cargo run` works out of the box, and a path to replace each of them when it
+isn't enough.
 
-## What this is (and isn't)
+## What it does
 
-- **Is**: the eona-x.eu publishing surface for the Vocabulary Hub — the project that will,
-  eventually, take the vocabulary snapshot in `content.vocabulary-hub.eona-x.eu` and build/serve
-  it at `https://eona-x.eu/<slug>/<version>` (per the publication scheme decided in
-  [backlog#677](https://gitlab.eona-x.org/eona-x/backlog/-/issues/677)).
-- **Isn't**: a replacement for [`eona-vocabulary-services`](https://gitlab.eona-x.org/eona-x/semantic-hub/eona-vocabulary-services),
-  which remains the authoring/CI pipeline and runtime services (Oxigraph, Prez, eovoc-ui) for
-  the Vocabulary Hub. This project doesn't run those services or author vocabularies — it only
-  publishes a subset of their output onto eona-x.eu.
+Given a directory of `<slug>/<version>/` vocabularies, the build:
 
-## Build
+1. **Discovers** which `<slug>/<version>` directories are published, and
+   from which graph file, via a [`Discoverer`](#the-discoverer-trait).
+2. **Writes a site** (`site::write_site`): for each published asset version,
+   `{asset-type}/{slug}/{version}.ttl`, `.jsonld`, and `.html`, plus one
+   `.htaccess` per `{asset-type}/{slug}/` directory that content-negotiates
+   on the `Accept` header (JSON-LD, then Turtle, then HTML as the fallback —
+   `*/*` included, so a browser following a link lands on the human page).
+   Terms are hash IRIs (`{asset-type}/{slug}/{version}#Term`), so one
+   document answers for every term in that version.
+3. **Optionally writes a DCAT catalog** (`catalog::write_catalog`): a
+   `docs/` tree — per-slug manifests, every version's graph in several
+   formats, and `catalog.ttl` / `catalog.jsonld` with DCAT versioning —
+   minted under `HubConfig::catalog_iri`, for a catalog UI to consume.
 
-`vocabulary-hub-build` (Rust, on [rdf-sitegen](https://github.com/ds-labs-org/ds-rdf-sitegen-rs))
-reads every `content/vocabularies/<slug>/v<version>/` — `content/` is the
-`content.vocabulary-hub.eona-x.eu` submodule, which pins `eona-vocabularies-reference` — with
-that repository's own publication rules (`content/vocabularies/tools/vocabulary-check`, the crate
-its quality gate runs), and writes one tree per production host, each uploaded to that host's
-`voc/` folder:
+Routing is deliberately simple: mod_rewrite rather than Apache's
+`mod_negotiation` type maps, because every Apache-style static host enables
+mod_rewrite. The trade-off is that `q`-values aren't weighed — the first
+matching media type wins, in a fixed order — which is enough for RDF clients
+(which always name a real RDF media type) and humans (who get HTML from
+everything else).
 
-```
-public/<host>/<asset-type>/<slug>/<version>.ttl      whole ontology / concept scheme
-public/<host>/<asset-type>/<slug>/<version>.jsonld   same graph
-public/<host>/<asset-type>/<slug>/<version>.html     human page, one #anchor per term
-public/<host>/<asset-type>/<slug>/.htaccess          Accept-header negotiation for this slug only
-```
-
-**IRI convention: `https://<host>/<asset-type>/<slug>/<version>#<term>`**, e.g.
-`https://eona-x.eu/vocabulary/odrl-profile/v0.0.1#GenericClaim`. `<host>` says who authored it:
-
-- `eona-x.eu`: vocabularies Eona-X authored;
-- `vocabulary.eona-x.eu`: Eona-X's RDF representations of someone else's standard (battery
-  pass, DPP, DATEX II, NeTEx), i.e. whose `metadata.ttl` names a `dcterms:creator` that is not a
-  `foaf:Person`.
-
-`<asset-type>` is one of five names, each covering concepts of the EU
-[asset-classification](http://publications.europa.eu/resource/dataset/asset-classification)
-authority table (`ASSET_TYPES` in the crate):
-
-| `<asset-type>` | EU asset-classification concepts it covers |
-|---|---|
-| `ontology` | Formal ontology |
-| `shape` | Application profile, Markup schema |
-| `crosswalk` | Alignment |
-| `vocabulary` | Terminology, Thesaurus, Dictionary, Glossary, Lexicon, Synonym ring, Folksonomy, Categorisation |
-| `codelist` | Code list, Authority file |
-
-A vocabulary is published **only when its root resource** (`owl:Ontology`, or
-`skos:ConceptScheme` for code lists and thesauri) **has that IRI**, and the build fails if:
-
-- the path under the host is not `<asset-type>/<slug>/<version>#`, or `<asset-type>`
-  is not one of the five;
-- it is on the other host than its `dcterms:creator` says, or one `<asset-type>/<slug>` is on both;
-- `metadata.ttl` declares a `dcat:type` the asset type does not cover;
-- `<version>` is not `v` + `owl:versionInfo`.
-
-Everything else (standards used as they are, minted elsewhere; shapes graphs without a root of
-their own) is listed as skipped. Upstream's gate runs the same rules, so what it lets through
-always builds.
-
-Negotiation (mod_rewrite, first match wins, `q`-values not weighed): `application/ld+json` or
-`application/json` → JSON-LD, `text/turtle` → Turtle, anything else including `*/*` → HTML.
-`<asset-type>/<slug>/` redirects (302) to the latest version. The `.htaccess` sits in each slug directory,
-not at the root, because the root is shared with the rest of eona-x.eu.
+## Quickstart
 
 ```sh
-git clone --recurse-submodules <this repo>
-cargo run -- content/vocabularies public
-scripts/serve-local.sh public                 # stock httpd:2.4 with AllowOverride All, :18088
-scripts/check-conneg.sh http://localhost:18088/ vocabulary/odrl-profile v0.0.1
-# every hosting layout, as CI runs them:
-docker run --rm -v "$PWD:/w" -w /w httpd:2.4 sh scripts/hosting-acceptance.sh <site-dir>
+cargo run -- <vocabularies-dir> <out-dir> [<docs-dir>]
 ```
 
-## Vocabulary Hub UI
+- `<vocabularies-dir>`: a checkout laid out as `<slug>/<version>/`
+  directories (see `tests/fixtures/vocabularies/` for minimal examples).
+  `DefaultDiscoverer` (the one `cargo run` wires up) publishes any such
+  directory containing an `ontology.ttl` or `alignment.ttl`.
+- `<out-dir>`: receives the published site, one tree per host the
+  discovered assets publish to.
+- `<docs-dir>` (optional): if given, also writes the catalog data tree
+  described above. Set `BUILT_AT` in the environment to stamp it with a
+  real build timestamp (CI can pass the commit timestamp); it defaults to
+  `"local build"`.
 
-`ui/` pins [eona-vocabulary-ui](https://github.com/EONA-X/eona-vocabulary-ui), served at the
-root of https://vocabulary.eona-x.eu/ (dev: https://dev-voc.eona-x.eu/). Its catalog browser (`/`),
-ontology browser (`/ontologies?ontology=<slug>`) and crosswalk view
-(`/crosswalks?crosswalk=<slug>`) read the catalog data the build writes with a third argument:
+To check the result serves correctly under a real Apache, see
+`scripts/serve-local.sh` and `scripts/check-conneg.sh`, and
+`scripts/hosting-acceptance.sh` for the full `.htaccess` layout under a
+stock `httpd` container.
+
+## `HubConfig`
+
+[`config::HubConfig`](src/config.rs) is pure data — everything a build needs
+that isn't the vocabularies themselves. It does not hold a `Discoverer`; the
+caller owns one alongside a `HubConfig` and passes both into `write_site`
+and `write_catalog` explicitly. `HubConfig::default()` returns a generic,
+obviously-fake configuration (`https://vocabulary-hub.example/`, RFC 2606)
+so the crate is useful out of the box without masquerading as a real site.
+
+| Field | Type | Configures |
+|---|---|---|
+| `site_base` | `String` | Default/primary content host base URL. |
+| `stylesheets` | `[(&'static str, &'static str); 3]` | `(filename, CSS content)` pairs linked by every vocabulary HTML page. |
+| `brand_name` | `String` | Header mark's accessible label. |
+| `brand_link` | `String` | URL the header mark and footer link point to. |
+| `brand_link_label` | `String` | Visible text of the footer's home link. |
+| `brand_mark_svg` | `&'static str` | Inline SVG markup for the header logo mark. |
+| `footer_text` | `String` | Footer text. |
+| `catalog_iri` | `String` | Base IRI minting the DCAT catalog and every asset/version IRI. |
+| `docs_base` | `String` | Base URL where the `docs/` catalog data tree is served (used in `landingPage`, `thumbnail`, `downloadURL`). |
+| `catalog_title` | `String` | DCAT catalog `dct:title`. |
+| `catalog_description` | `String` | DCAT catalog `dct:description`. |
+
+## The `Discoverer` trait
+
+[`discoverer::Discoverer`](src/discoverer.rs) says which `<slug>/<version>`
+directories under a checkout are published, and from which file — nothing
+else about the build depends on how that decision is made. This is the seam
+a real deployment usually needs to customize: a different directory layout,
+a split across multiple hosts, a gate on some upstream CI check or
+front-matter field, vendoring rules distinguishing "we wrote this" from
+"this is our copy of someone else's standard".
+
+```rust
+pub trait Discoverer {
+  fn discover(&self, dir: &Path, default_base: &str) -> Result<Discovery, String>;
+  fn version_dirs(&self, dir: &Path) -> Result<Vec<String>, String>;
+  fn graph_file(&self, dir: &Path) -> Result<String, String>;
+}
+```
+
+[`default_discovery::DefaultDiscoverer`](src/default_discovery.rs) is the
+bundled, ready-to-use implementation: every `<slug>/<version>` with an
+`ontology.ttl` or `alignment.ttl` is published under the single
+`default_base` given, with no host-splitting and no vendoring rules. Its
+asset type comes from an optional `metadata.ttl`'s `dcat:type`; absent that,
+it defaults to `"ontology"`. It's enough for a single-repository, single-host
+publication straight out of the box (it's what `cargo run`/`main.rs` wires
+up), and a readable reference for writing your own against a real content
+repository with its own layout and gating rules.
+
+## Theming
+
+[`theme::default`](src/theme/default.rs) ships three plain CSS files
+(`tokens.css`, `components.css`, `ontology.css`) — design tokens, generic
+page/component styles, and vocabulary-page-specific styles — just enough
+valid CSS to render a readable page. They're wired into
+`HubConfig::default()`'s `stylesheets` field and nothing else; swapping
+theme/branding is purely a matter of building a `HubConfig` whose
+`stylesheets`, `brand_name`, `brand_link`, `brand_link_label`,
+`brand_mark_svg`, and `footer_text` point at your own content instead of
+calling `HubConfig::default()`.
+
+## Instantiating this for your own organization
+
+Using this crate for a real deployment means driving the library directly
+(`vocabulary_hub_rs::{catalog, config, discoverer, site}`, as `main.rs`
+does) with your own values in place of the defaults, rather than forking
+it. Four things typically change:
+
+1. **Your own `HubConfig`.** Build one with your organization's
+   `site_base`, `catalog_iri`, `docs_base`, brand fields, and catalog
+   title/description, instead of `HubConfig::default()`.
+2. **Your own `Discoverer`**, if `DefaultDiscoverer`'s single-host,
+   no-vendoring-rules behavior isn't enough — e.g. you publish to more than
+   one host, need a vendored-vs-authored split, or want to gate publication
+   on a field your own content repository's quality-check tooling sets.
+   Implement the three `Discoverer` methods against your own layout and
+   pass it to `write_site`/`write_catalog` in place of `DefaultDiscoverer`.
+3. **Your own theme CSS.** Write your own `(filename, CSS)` pairs (or
+   however many stylesheets you need) and set `HubConfig.stylesheets` to
+   them; `theme::default` is a placeholder, not something to extend.
+4. **Your own hosting glue.** `hosting/` and `.gitlab-ci.yml` in this
+   generic repository are templates for an instantiation to copy and adapt,
+   not something this repository's own CI demonstrates end-to-end. Two
+   placeholder tokens are the documented substitution points:
+   - `{{SITE_BASE_HOST}}` — the authored-content host as a bare hostname
+     (mirrors `HubConfig.site_base`).
+   - `{{VENDORED_HOST}}` — the catalog/vendored host as a bare hostname
+     (mirrors `HubConfig.catalog_iri` / `docs_base`).
+
+   These are plain-text substitution points in the Apache `.htaccess`
+   templates under `hosting/`: your deployment pipeline replaces them with
+   real hostnames before installing the file. `.gitlab-ci.yml` should use
+   GitLab CI's own variable interpolation instead of these tokens: declare
+   `SITE_BASE_HOST`, `VENDORED_HOST` (and optionally `DEV_HOST`) in a
+   top-level `variables:` block, and reference them as `$SITE_BASE_HOST`,
+   `$VENDORED_HOST`, `$DEV_HOST` in `environment:url:` fields and script
+   lines, rather than hand-editing hostnames into the pipeline.
+
+## Layout
 
 ```
-docs/ontologies.json, docs/alignments.json         the UI's manifests (latest version of each asset)
-docs/<slug>/v<version>/{ontology|alignment}.{ttl,jsonld,owl,nt}   every version, four formats
-docs/catalog.jsonld, docs/catalog.ttl              DCAT catalog (with DCAT versioning) under
-                                                   https://vocabulary.eona-x.eu/catalog
-docs/assets/                                       logos
+src/
+  config.rs                    HubConfig
+  discoverer.rs                 the Discoverer trait
+  default_discovery.rs           DefaultDiscoverer
+  theme.rs, theme/                bundled placeholder CSS
+  site.rs, htaccess.rs, html.rs     site build (Turtle/JSON-LD/HTML + .htaccess)
+  catalog.rs                        DCAT catalog build
+  model.rs, turtle.rs                shared types and Turtle parsing
+  main.rs                             CLI wiring HubConfig::default() + DefaultDiscoverer
+hosting/                      .htaccess templates, placeholder-driven
+scripts/                      local serve / conneg / hosting-acceptance checks
+tests/                        integration tests + minimal vocabulary fixtures
 ```
 
-It covers every `<slug>/v<version>/` of eona-vocabularies-reference with a `metadata.ttl`,
-whichever host (if any) publishes it. CI's `ui` job runs the UI's own `build.sh` with that tree
-(`trunk`, pinned as in the UI repository). `hosting/hub-ui.htaccess`, after the router block, sends
-a path with nothing behind it to the app shell (the UI routes client-side), never `docs/` or `voc/`.
+## License
 
-```sh
-BUILT_AT=now cargo run -- content/vocabularies public docs
-(cd ui && ./build.sh ../docs /)               # ui/dist: the site root
-```
-
-## Updating the content
-
-`content/` pins content.vocabulary-hub.eona-x.eu, which pins eona-vocabularies-reference. To
-publish what is on eona-vocabularies-reference `main`, run the manual **`bump`** job of a `main`
-pipeline: content.vocabulary-hub.eona-x.eu moves `vocabularies/` to that `main`, checks that
-upstream's required checks are green and runs the gate itself, then triggers `bump:content`
-here, which moves `content/` to the content repository's latest `main`. Each push starts the
-pipeline that rebuilds and redeploys dev. Pushes use the CI job token as the user who runs it, so
-it needs a Maintainer and, in both projects, *CI/CD → Job token permissions → Allow Git push
-requests to the repository*.
-
-## Hosting and deploy
-
-Three environments with the **same paths**; only the web root around `voc/` differs. dev-voc
-previews both production hosts at once. Checked by `scripts/hosting-acceptance.sh` in CI (stock
-`httpd:2.4`), together with the bare build output:
-
-| GitLab environment | URL | Tree | `OVH_SFTP_DIR` | Web root around `voc/` | Deploy |
-|---|---|---|---|---|---|
-| `dev` | https://dev-voc.eona-x.eu/ | both, merged | `voc` (account rooted at `dev-voc/`) | the Vocabulary Hub UI (`ui/dist`, deployed by CI); root `.htaccess` = `hosting/dev/.htaccess` + `hosting/router.htaccess` + `hosting/hub-ui.htaccess`, plus `hosting/dev/robots.txt` | `deploy:dev`, every `main` pipeline, `mirror` (UI: `site`) |
-| `prd` | https://eona-x.eu/ | `public/eona-x.eu` | `<WP_ROOT>/voc` | WordPress; `hosting/router.htaccess` above `# BEGIN WordPress` | `deploy:prd`, manual after dev, `additive` (a published version is never deleted) |
-| `prd-vocabulary` | https://vocabulary.eona-x.eu/ | `public/vocabulary.eona-x.eu` | `voc` | the Vocabulary Hub UI (`ui/dist`, deployed by CI); `hosting/router.htaccess` + `hosting/hub-ui.htaccess` | `deploy:prd-vocabulary`, manual after dev, `additive` (UI: `site`) |
-
-The router answers 404 for an asset-type path with nothing behind it in `voc/` (a slug of the
-other host, a typo), so the surrounding site never answers for one.
-
-The dev root files give dev-voc `X-Robots-Tag: noindex, nofollow` on every response (with a `robots.txt` that *allows* crawling, so crawlers read it), HTTP →
-HTTPS, and on every response a `rel="canonical"` Link to its production twin: on the host each
-vocabulary's own slug `.htaccess` names (`E=CANONICAL_HOST`), `https://vocabulary.eona-x.eu<path>`
-everywhere else (the Hub UI). The Hub UI must never use one of the five asset-type names as a
-top-level path.
-In dev, the root files are deployed by CI too (`scripts/dev-root.sh`, added without deleting
-anything, so the Hub UI build next to them is safe); in prd, the router block is installed once by
-hand above WordPress's. Each environment has its own SFTP account, rooted at its web root.
-
-`scripts/deploy-sftp.sh` uploads with lftp over SFTP to an SFTP-only OVH account, with the
-cluster's host key pinned. `OVH_SFTP_USER`, `OVH_SFTP_PASSWORD` and `OVH_SFTP_DIR` are scoped per
-GitLab environment. `OVH_SFTP_DIR` is required, must be a plain relative path, and must name a
-`voc` folder; the account root (`.`) is accepted only for `additive` uploads, which never delete,
-and for `site`, which mirrors the Hub UI but never touches `voc/`, `.htaccess`, `robots.txt` or
-`.ovhconfig`. Each deploy job
-ends with `scripts/smoke-live.sh` against the live URL.
-
-Accounts, domains, the root files and the CI variables are set up by hand, step by step, per the
-**eona-x.eu OVH web hosting deployment guide** in
-[`eona-architecture-decision-records`](https://gitlab.eona-x.org/eona-x/eona-architecture-decision-records)
-(`docs/eona-x-eu-ovh-web-hosting-deployment-guide.md`), which also records why (ADR
-`20260929-deploy-eona-x-eu-sites-to-ovh-web-hosting-over-sftp`).
-
-## Related
-
-- Content repo: [`content.vocabulary-hub.eona-x.eu`](https://gitlab.eona-x.org/eona-x/semantic-hub/content.vocabulary-hub.eona-x.eu)
-- Authoring/runtime: [`eona-vocabulary-services`](https://gitlab.eona-x.org/eona-x/semantic-hub/eona-vocabulary-services)
-- Equivalent pattern elsewhere: [`developer.eona-x.eu`](https://gitlab.eona-x.org/eona-x/web/developer.eona-x.eu) / `content.developer.eona-x.eu`
+Apache License 2.0 — see [LICENSE](LICENSE).
