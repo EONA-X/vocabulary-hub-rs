@@ -72,22 +72,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eona-ui-toolkit"
-version = "0.1.0"
-source = "git+https://github.com/EONA-X/eona-ui-toolkit.git?rev=89941e7075cd7ed4654141ce3c64f07ca9089eca#89941e7075cd7ed4654141ce3c64f07ca9089eca"
-dependencies = [
- "yew",
-]
-
-[[package]]
-name = "eona-vocabulary-check"
-version = "0.1.0"
-dependencies = [
- "oxrdf",
- "oxttl",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1084,11 +1068,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
-name = "vocabulary-hub-build"
+name = "vocabulary-hub-rs"
 version = "0.1.0"
 dependencies = [
- "eona-ui-toolkit",
- "eona-vocabulary-check",
  "oxjsonld",
  "oxrdf",
  "oxrdfxml",

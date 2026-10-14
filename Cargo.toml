@@ -1,29 +1,22 @@
 [package]
-name = "vocabulary-hub-build"
+name = "vocabulary-hub-rs"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-description = "Builds the static, content-negotiated publication of Eona-X vocabularies on https://eona-x.eu/<slug>/<version> from content.vocabulary-hub.eona-x.eu."
+description = "Builds a static, content-negotiated publication (Turtle, JSON-LD, HTML) and DCAT catalog of versioned RDF vocabularies from a plain directory convention."
 publish = false
 
 [dependencies]
-# The rules every vocabulary must pass, from the source repository itself
-# (eona-vocabularies-reference/tools/vocabulary-check, through the content
-# submodule): what its CI gates contributions on is exactly what this build
-# accepts, at the pinned commit.
-eona-vocabulary-check = { path = "content/vocabularies/tools/vocabulary-check" }
 # Pinned to an exact commit: the served files are a function of this crate's
 # serializers, so "which rdf-sitegen built this site" must have one answer.
 rdf-sitegen = { git = "https://github.com/ds-labs-org/ds-rdf-sitegen-rs.git", rev = "ee86c1d14c182f696e3cb7bdb571910f32a9ad10" }
 oxttl = "0.2.4"
 oxrdf = "0.3.4"
-# The HTML representation is rendered with the EONA-X design system's own
-# components and stylesheets, server-side, to static files. Pinned to the
-# v0.8.0 release commit, like rdf-sitegen above.
-eona-ui-toolkit = { git = "https://github.com/EONA-X/eona-ui-toolkit.git", rev = "89941e7075cd7ed4654141ce3c64f07ca9089eca", features = ["ssr"] }
+# The HTML representation is rendered server-side, to static files, with a
+# small set of local Yew components styled by the configured stylesheets.
 yew = { version = "0.23", features = ["ssr"] }
 tokio = { version = "1", features = ["rt"] }
-# The UI parses expanded JSON-LD with serde_json and preserve_order: key order is display order.
+# Consumers parse expanded JSON-LD with serde_json and preserve_order: key order is display order.
 serde_json = { version = "1", features = ["preserve_order"] }
 oxrdfxml = "0.2"
 

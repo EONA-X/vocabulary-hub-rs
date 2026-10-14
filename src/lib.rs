@@ -1,16 +1,23 @@
-//! Static publication of Eona-X vocabularies on `https://eona-x.eu/`.
+//! A static-site generator for a vocabulary hub.
 //!
-//! The hosting is a plain static file host fronted by `.htaccess` (see the ADR
-//! "Sourcing content.vocabulary-hub.eona-x.eu's ontologies via a git submodule"),
-//! so everything here happens at build time: [`discover`] — the source
-//! repository's own rules, `eona-vocabularies-reference/tools/vocabulary-check`
-//! — decides which vocabularies of the pinned checkout are publishable, and [`site::write_site`] emits, per vocabulary version, one
-//! `.ttl`, one `.jsonld` and one `.html` file plus the `.htaccess` that picks
-//! between them by `Accept` header.
-
-pub use eona_vocabulary_check::{ASSET_TYPES, Discovery, SITE_BASE, Skipped, Vocabulary, asset_type_alternation, discover};
+//! Given a checkout of versioned RDF vocabularies, a [`discoverer::Discoverer`]
+//! decides which `<slug>/<version>` directories to publish ([`default_discovery::DefaultDiscoverer`]
+//! ships a standalone, single-host default); [`site::write_site`] then
+//! renders each as Turtle, JSON-LD and a styled HTML page plus the
+//! `.htaccess` that content-negotiates between them, and [`catalog::write_catalog`]
+//! builds a DCAT catalog of the whole collection. Branding, hosting bases
+//! and the catalog's own identity are configured through [`config::HubConfig`];
+//! the caller (see `main.rs`) owns both a `HubConfig` and a `Discoverer` and
+//! threads them through explicitly.
 
 pub mod catalog;
+mod components;
+pub mod config;
+pub mod default_discovery;
+pub mod discoverer;
 mod htaccess;
 mod html;
+pub mod model;
 pub mod site;
+pub mod theme;
+mod turtle;
