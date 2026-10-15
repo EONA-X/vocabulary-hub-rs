@@ -447,3 +447,20 @@ ex:Thing a owl:Class ; rdfs:comment "first remark", "second remark" .
   assert!(html.contains("first remark"), "{html}");
   assert!(html.contains("second remark"), "{html}");
 }
+
+#[test]
+fn every_fixture_vocabulary_mints_its_iris_under_the_default_site_base() {
+  // scripts/hosting-acceptance.sh asserts each body declares the IRI the build
+  // publishes it under, and the build publishes under the site base.
+  let config = HubConfig::default();
+  let found = DefaultDiscoverer.discover(Path::new("tests/fixtures/vocabularies"), &config.site_base).unwrap();
+  assert!(!found.published.is_empty());
+  for v in &found.published {
+    assert_eq!(
+      v.namespace,
+      format!("{}{}/{}/{}#", config.site_base, v.kind, v.slug, v.version),
+      "{}",
+      v.dir_name
+    );
+  }
+}

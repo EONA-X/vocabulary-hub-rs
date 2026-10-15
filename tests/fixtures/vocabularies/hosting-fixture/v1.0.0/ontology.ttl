@@ -1,8 +1,8 @@
 # Not a real vocabulary. Built only by scripts/hosting-acceptance.sh so the
 # hosting layouts are exercised even while no upstream vocabulary is minted
-# under https://eona-x.eu/ yet. Never deployed. A SKOS code list, so the
+# under the default site base yet. Never deployed. A SKOS code list, so the
 # concept-scheme root and a second asset class are covered too.
-@prefix fx: <https://eona-x.eu/codelist/hosting-fixture/v1.0.0#> .
+@prefix fx: <https://vocabulary-hub.example/codelist/hosting-fixture/v1.0.0#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 fx: a skos:ConceptScheme ; owl:versionInfo "1.0.0" ; skos:prefLabel "Hosting fixture"@en .
