@@ -483,3 +483,21 @@ fn a_missing_vocabularies_dir_is_an_error_that_leaves_the_existing_catalog_untou
   assert!(result.is_err(), "expected an error, got {result:?}");
   assert_eq!(fs::read_to_string(docs.join("ontologies.json")).unwrap(), "previously published");
 }
+
+#[test]
+fn a_published_version_carries_the_same_term_iris_in_the_catalog_as_on_the_site() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  write(src.path(), "rel/v1/metadata.ttl", &metadata("Rel", "1", "c_89b4bdb7", "CURRENT", ""));
+  write(
+    src.path(),
+    "rel/v1/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<#> a owl:Ontology .\n<#Thing> a owl:Class .\n",
+  );
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  // The site mints it under `{SITE_BASE}ontology/rel/v1`; the catalog's own
+  // copy of the graph must not re-mint it under the catalog IRI.
+  let nt = fs::read_to_string(out.path().join("rel/v1/ontology.nt")).unwrap();
+  assert!(nt.contains(&format!("<{SITE_BASE}ontology/rel/v1#Thing>")), "{nt}");
+  assert!(!nt.contains(CATALOG_IRI), "{nt}");
+}

@@ -124,11 +124,16 @@ fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
 /// `<slug>/<version>` directories the hub itself publishes (and at which
 /// IRI). Returns the written paths relative to `out`.
 pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &HubConfig, discoverer: &dyn Discoverer) -> Result<Vec<PathBuf>, String> {
-  let published: HashMap<String, String> = discoverer
+  // The IRI each published version is served at, and its graph as the site
+  // parsed it: the catalog reuses that graph so both carry the same term IRIs.
+  let published: HashMap<String, Published> = discoverer
     .discover(vocabularies, &config.site_base)?
     .published
     .into_iter()
-    .map(|v| (v.dir_name, format!("{}{}/{}/{}", v.base, v.kind, v.slug, v.version)))
+    .map(|v| {
+      let page = format!("{}{}/{}/{}", v.base, v.kind, v.slug, v.version);
+      (v.dir_name, (page, v.triples, v.prefixes))
+    })
     .collect();
 
   // slug -> its versions, oldest first.
@@ -227,12 +232,21 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   Ok(written)
 }
 
-fn read_version(dir: &Path, dir_name: &str, published: Option<String>, discoverer: &dyn Discoverer, catalog_iri: &str) -> Result<AssetVersion, String> {
+/// A published version's page IRI, triples and prefixes, as the discoverer parsed them.
+type Published = (String, Vec<Triple>, Vec<(String, String)>);
+
+fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discoverer: &dyn Discoverer, catalog_iri: &str) -> Result<AssetVersion, String> {
   let (slug, version_dir) = dir_name.split_once('/').ok_or_else(|| format!("{dir_name}: not <slug>/<version>"))?;
   let asset_iri = format!("{catalog_iri}/{slug}");
   let (meta, _) = parse_turtle(&dir.join("metadata.ttl"), &asset_iri)?;
   let graph_file = discoverer.graph_file(dir)?;
-  let (graph, prefixes) = parse_turtle(&dir.join(&graph_file), &format!("{asset_iri}/{version_dir}/"))?;
+  let (published, graph, prefixes) = match published {
+    Some((page, graph, prefixes)) => (Some(page), graph, prefixes),
+    None => {
+      let (graph, prefixes) = parse_turtle(&dir.join(&graph_file), &format!("{asset_iri}/{version_dir}/"))?;
+      (None, graph, prefixes)
+    }
+  };
 
   let subject = NamedOrBlankNode::NamedNode(NamedNode::new_unchecked(&asset_iri));
   let literal = |p: &str| objects(&meta, &subject, p).into_iter().find_map(literal_value);
