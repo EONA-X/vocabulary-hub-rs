@@ -157,6 +157,14 @@ fn subdirs(dir: &Path) -> Result<Vec<String>, String> {
   Ok(names)
 }
 
+/// Whether `iri` lies under `other`: it extends it past a `#` or `/` boundary,
+/// so `http://ex.org/core-ext` is not nested under `http://ex.org/core`.
+pub(crate) fn is_nested_under(iri: &str, other: &str) -> bool {
+  iri
+    .strip_prefix(other)
+    .is_some_and(|rest| other.ends_with(['#', '/']) || rest.starts_with(['#', '/']))
+}
+
 /// The `owl:Ontology` or `skos:ConceptScheme` subject not nested under
 /// another, if there is exactly one.
 fn root(triples: &[Triple]) -> Option<String> {
@@ -172,7 +180,7 @@ fn root(triples: &[Triple]) -> Option<String> {
   iris.sort_unstable();
   iris.dedup();
   let all = iris.clone();
-  iris.retain(|iri| !all.iter().any(|other| other != iri && iri.starts_with(other)));
+  iris.retain(|iri| !all.iter().any(|other| other != iri && is_nested_under(iri, other)));
   (iris.len() == 1).then(|| iris[0].to_string())
 }
 
@@ -234,5 +242,23 @@ mod tests {
     assert!(discovery.skipped.is_empty(), "{:?}", discovery.skipped);
     assert_eq!(discovery.published.len(), 1);
     assert_eq!(discovery.published[0].namespace, "https://hub.test/ontology/xw/v0.1.0#");
+  }
+
+  #[test]
+  fn two_roots_sharing_only_a_string_prefix_are_skipped_as_having_no_single_root() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("core/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<http://ex.org/core> a owl:Ontology .\n<http://ex.org/core-ext> a owl:Ontology .\n",
+    )
+    .unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.published.is_empty(), "{:?}", discovery.published.len());
+    assert_eq!(discovery.skipped.len(), 1);
+    assert!(discovery.skipped[0].reason.contains("no single"));
   }
 }

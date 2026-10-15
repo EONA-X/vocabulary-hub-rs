@@ -487,7 +487,7 @@ fn roots(graph: &[Triple]) -> Vec<String> {
   iris.sort_unstable();
   iris.dedup();
   let all = iris.clone();
-  iris.retain(|iri| !all.iter().any(|other| other != iri && iri.starts_with(other)));
+  iris.retain(|iri| !all.iter().any(|other| other != iri && crate::default_discovery::is_nested_under(iri, other)));
   iris.into_iter().map(String::from).collect()
 }
 
