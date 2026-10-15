@@ -6,16 +6,18 @@
 //! a hub UI's catalog data (its `docs/`), stamped with `$BUILT_AT` (CI passes
 //! the commit timestamp).
 //!
-//! This binary wires the crate's defaults together: [`HubConfig::default`]
-//! and [`DefaultDiscoverer`]. A deployment with its own branding or
-//! publication rules builds its own `HubConfig` and/or `Discoverer` and
-//! calls the library directly instead.
+//! This binary wires the crate's defaults together: [`HubConfig::default`],
+//! [`DefaultDiscoverer`] and [`DefaultComponents`]. A deployment with its
+//! own branding, publication rules or markup builds its own `HubConfig`
+//! and/or `Discoverer` and/or `Components` and calls the library directly
+//! instead.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use vocabulary_hub_rs::catalog::write_catalog;
 use vocabulary_hub_rs::config::HubConfig;
+use vocabulary_hub_rs::default_components::DefaultComponents;
 use vocabulary_hub_rs::default_discovery::DefaultDiscoverer;
 use vocabulary_hub_rs::discoverer::Discoverer;
 use vocabulary_hub_rs::site::write_site;
@@ -33,6 +35,7 @@ fn main() -> ExitCode {
 
   let config = HubConfig::default();
   let discoverer = DefaultDiscoverer;
+  let components = DefaultComponents;
 
   let found = match discoverer.discover(vocabularies, &config.site_base) {
     Ok(found) => found,
@@ -47,7 +50,7 @@ fn main() -> ExitCode {
   for v in &found.published {
     println!("publish {} -> {}{}/{}/{}", v.dir_name, v.base, v.kind, v.slug, v.version);
   }
-  match write_site(out, &found.published, &config) {
+  match write_site(out, &found.published, &config, &components) {
     Ok(written) => println!("wrote {} files under {}", written.len(), out.display()),
     Err(e) => {
       eprintln!("error: writing {}: {e}", out.display());
