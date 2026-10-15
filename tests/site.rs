@@ -420,3 +420,30 @@ fn a_member_iri_with_a_script_scheme_is_shown_as_text_and_never_linked() {
   assert!(html.contains("javascript:alert(3)"), "{html}");
   assert!(html.contains(r#"href="http://www.w3.org/ns/odrl/2/eq""#), "{html}");
 }
+
+#[test]
+fn the_html_shows_every_value_of_an_annotation_even_when_several_share_a_language() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fs::create_dir_all(src.path().join("example-profile/v0.0.1")).unwrap();
+  fs::write(
+    src.path().join("example-profile/v0.0.1/ontology.ttl"),
+    format!(
+      r#"@prefix ex: <{NS}> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+ex: a owl:Ontology ; owl:versionInfo "0.0.1" .
+ex:Thing a owl:Class ; rdfs:comment "first remark", "second remark" .
+"#
+    ),
+  )
+  .unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/metadata.ttl"), METADATA).unwrap();
+  let vocabularies = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+
+  write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
+
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(html.contains("first remark"), "{html}");
+  assert!(html.contains("second remark"), "{html}");
+}

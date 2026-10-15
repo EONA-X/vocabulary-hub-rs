@@ -13,7 +13,6 @@
 //! (`…/v0.0.1#GenericClaim`) scrolls to that term. No script: the host serves
 //! flat files and nothing else.
 
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::pin;
 use std::rc::Rc;
@@ -21,6 +20,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 use std::thread::{self, Thread};
 
+use oxrdf::{NamedOrBlankNode, Term, Triple};
 use rdf_sitegen::{Indices, Ontology, RDF_TYPE, RDFS_COMMENT, RDFS_LABEL, UNTAGGED, subjects_in_namespace};
 use yew::{AttrValue, Html, Properties, function_component, html};
 
@@ -30,6 +30,7 @@ use crate::model::Vocabulary;
 
 const DCT_TITLE: &str = "http://purl.org/dc/terms/title";
 const DCT_DESCRIPTION: &str = "http://purl.org/dc/terms/description";
+const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 const SKOS: &str = "http://www.w3.org/2004/02/skos/core#";
 
@@ -160,7 +161,7 @@ impl PageData {
       ("Namespace", plain(ns)),
     ];
     for (pred, heading) in [(DCT_DESCRIPTION, "Description"), (RDFS_COMMENT, "Comment")] {
-      let values = literals(&idx, ns, pred);
+      let values = literals(&v.triples, ns, pred);
       if !values.is_empty() {
         overview.push((heading, values));
       }
@@ -185,7 +186,7 @@ impl PageData {
           notes: TERM_NOTES
             .iter()
             .filter_map(|(pred, heading)| {
-              let values = literals(&idx, &t, pred);
+              let values = literals(&v.triples, &t, pred);
               (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
             })
             .collect(),
@@ -301,27 +302,29 @@ fn term_kind(iri: &str) -> TermKind {
   }
 }
 
-/// Every language's value of `predicate` on `subject`, English first, then the
-/// untagged one, then the others alphabetically.
-fn literals(idx: &Indices, subject: &str, predicate: &str) -> Vec<LiteralValue> {
-  let Some(by_lang) = idx.literal_all_langs(subject, predicate) else {
-    return Vec::new();
-  };
-  let sorted: BTreeMap<(u8, &str), &str> = by_lang
-    .iter()
-    .map(|(lang, value)| {
-      let rank = match lang.as_str() {
-        "en" => 0,
-        UNTAGGED => 1,
-        _ => 2,
-      };
-      ((rank, lang.as_str()), value.as_str())
-    })
-    .collect();
-  sorted
-    .into_iter()
-    .map(|((_, lang), value)| LiteralValue::new(value.to_string(), (!lang.is_empty()).then(|| lang.to_string()), None))
-    .collect()
+/// Every value of `predicate` on `subject`, English first, then the untagged
+/// ones, then the other languages alphabetically; values sharing a language
+/// keep their source order.
+fn literals(triples: &[Triple], subject: &str, predicate: &str) -> Vec<LiteralValue> {
+  let mut values: Vec<LiteralValue> = Vec::new();
+  for t in triples {
+    let NamedOrBlankNode::NamedNode(s) = &t.subject else { continue };
+    let Term::Literal(l) = &t.object else { continue };
+    if s.as_str() != subject || t.predicate.as_str() != predicate {
+      continue;
+    }
+    let datatype = (l.language().is_none() && l.datatype().as_str() != XSD_STRING).then(|| l.datatype().as_str().to_string());
+    let value = LiteralValue::new(l.value().to_string(), l.language().map(str::to_string), datatype);
+    if !values.contains(&value) {
+      values.push(value);
+    }
+  }
+  values.sort_by_key(|v| match v.lang.as_deref() {
+    Some("en") => (0, String::new()),
+    None => (1, String::new()),
+    Some(lang) => (2, lang.to_string()),
+  });
+  values
 }
 
 /// English, else untagged — the corpus is English-first today.
