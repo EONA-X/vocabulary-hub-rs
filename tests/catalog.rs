@@ -412,6 +412,36 @@ fn a_version_the_hub_publishes_links_its_dereferenceable_iri() {
 }
 
 #[test]
+fn versions_are_ordered_numerically_so_v1_10_0_is_newer_than_v1_9_0() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for version in ["1.9.0", "1.10.0"] {
+    write(
+      src.path(),
+      &format!("a/v{version}/metadata.ttl"),
+      &metadata("A", version, "c_89b4bdb7", "CURRENT", ""),
+    );
+    write(
+      src.path(),
+      &format!("a/v{version}/ontology.ttl"),
+      "<https://ex.org/a#> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+    );
+  }
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let manifest = json(out.path(), "ontologies.json");
+  assert_eq!(manifest["ontologies"][0]["version"], "1.10.0");
+  assert_eq!(manifest["ontologies"][0]["downloads"], downloads("a/v1.10.0", "ontology"));
+
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = node(&nodes, &format!("{CATALOG_IRI}/a"));
+  assert_eq!(ids(&asset[&format!("{DCAT}hasCurrentVersion")]), [format!("{CATALOG_IRI}/a/v1.10.0")]);
+  let newer = node(&nodes, &format!("{CATALOG_IRI}/a/v1.10.0"));
+  assert_eq!(ids(&newer[&format!("{DCAT}previousVersion")]), [format!("{CATALOG_IRI}/a/v1.9.0")]);
+  let older = node(&nodes, &format!("{CATALOG_IRI}/a/v1.9.0"));
+  assert!(older.get(format!("{DCAT}previousVersion")).is_none());
+}
+
+#[test]
 fn the_assets_are_copied_and_nothing_else_is_written() {
   let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
   build(src.path(), out.path());

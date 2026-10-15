@@ -102,6 +102,23 @@ impl AssetVersion {
   }
 }
 
+/// Orders two `v<version>` directory names by version: dot-separated numeric
+/// segments compare as integers, anything else falls back to string order.
+fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
+  let segments = |v: &str| -> Vec<String> { v.trim_start_matches('v').split('.').map(str::to_string).collect() };
+  let (a_segments, b_segments) = (segments(a), segments(b));
+  for (x, y) in a_segments.iter().zip(&b_segments) {
+    let ordering = match (x.parse::<u64>(), y.parse::<u64>()) {
+      (Ok(x), Ok(y)) => x.cmp(&y),
+      _ => x.cmp(y),
+    };
+    if ordering.is_ne() {
+      return ordering;
+    }
+  }
+  a_segments.len().cmp(&b_segments.len()).then_with(|| a.cmp(b))
+}
+
 /// Writes the catalog data for the vocabularies at `vocabularies` into `out`,
 /// using `config`'s branding, IRIs and `discoverer` to tell which
 /// `<slug>/<version>` directories the hub itself publishes (and at which
@@ -123,6 +140,12 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
     }
     let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
     assets.entry(v.slug.clone()).or_default().push(v);
+  }
+
+  // The discoverer promises no order, and directory names sort lexicographically
+  // (v1.10.0 before v1.9.0): order each slug's versions by version number.
+  for versions in assets.values_mut() {
+    versions.sort_by(|a, b| version_order(&a.dir, &b.dir));
   }
 
   let mut written = Vec::new();
