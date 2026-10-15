@@ -117,9 +117,15 @@ fn escape_substitution(slug: &str) -> String {
   slug.replace('$', "\\$").replace('%', "\\%")
 }
 
-/// `v1.10.0` sorts after `v1.9.0`; a non-numeric segment sorts as 0.
-fn version_key(version: &str) -> Vec<u64> {
-  version.trim_start_matches('v').split('.').map(|n| n.parse().unwrap_or(0)).collect()
+/// `v1.10.0` sorts after `v1.9.0`; a non-numeric core segment sorts as 0. A pre-release suffix (`-rc1`) ranks below
+/// its release, and pre-releases of one core order by suffix, so the latest version is deterministic.
+fn version_key(version: &str) -> (Vec<u64>, bool, &str) {
+  let (core, pre) = version.trim_start_matches('v').split_once('-').unwrap_or((version.trim_start_matches('v'), ""));
+  let mut nums: Vec<u64> = core.split('.').map(|n| n.parse().unwrap_or(0)).collect();
+  while nums.last() == Some(&0) {
+    nums.pop();
+  }
+  (nums, pre.is_empty(), pre)
 }
 
 #[cfg(test)]
@@ -130,6 +136,20 @@ mod tests {
   fn regex_metacharacters_in_the_slug_are_escaped_in_the_request_uri_guard() {
     let out = render("vocabulary-hub.example", "ontology/a+b(c)*", &["v1.0.0"]);
     assert!(out.contains(r"RewriteCond %{REQUEST_URI} !^/ontology/a\+b\(c\)\*(/|$)"), "{out}");
+  }
+
+  #[test]
+  fn latest_version_redirect_prefers_the_release_over_its_pre_release_in_any_order() {
+    for versions in [["v2.0.0", "v2.0.0-rc1"], ["v2.0.0-rc1", "v2.0.0"]] {
+      let out = render("vocabulary-hub.example", "ontology/c", &versions);
+      assert!(out.contains("/ontology/c/v2.0.0 [R=302,L]"), "{out}");
+    }
+  }
+
+  #[test]
+  fn latest_version_redirect_ranks_a_short_pre_release_by_its_numeric_core() {
+    let out = render("vocabulary-hub.example", "ontology/c", &["v2.0.0", "v2.1-rc1"]);
+    assert!(out.contains("/ontology/c/v2.1-rc1 [R=302,L]"), "{out}");
   }
 
   #[test]
