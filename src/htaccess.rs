@@ -61,7 +61,8 @@ RewriteEngine On
   // requests routed there (an internal redirect) may reach it.
   let _ = writeln!(
     s,
-    "RewriteCond %{{ENV:REDIRECT_STATUS}} ^$\nRewriteCond %{{REQUEST_URI}} !^/{slug_path}(/|$)\nRewriteRule ^ - [R=404,L]"
+    "RewriteCond %{{ENV:REDIRECT_STATUS}} ^$\nRewriteCond %{{REQUEST_URI}} !^/{}(/|$)\nRewriteRule ^ - [R=404,L]",
+    escape_regex(slug_path)
   );
   for (accept, ext) in [(r"application/(ld\+)?json", "jsonld"), ("text/turtle", "ttl"), ("", "html")] {
     let _ = writeln!(s, "\nRewriteCond %{{REQUEST_FILENAME}} !-f\nRewriteCond %{{REQUEST_FILENAME}}.ttl -f");
@@ -76,7 +77,8 @@ RewriteEngine On
     // are HTTPS-only (dev redirects plain HTTP), hence the fixed scheme.
     let _ = writeln!(
       s,
-      "\n# {slug_path}/ -> latest version of this build\nRewriteRule ^$ https://%{{HTTP_HOST}}/{slug_path}/{latest} [R=302,L]"
+      "\n# {slug_path}/ -> latest version of this build\nRewriteRule ^$ https://%{{HTTP_HOST}}/{}/{latest} [R=302,L]",
+      escape_substitution(slug_path)
     );
   }
   s
@@ -99,7 +101,40 @@ AddCharset utf-8 .css
   .to_string()
 }
 
+/// Backslash-escapes every non-alphanumeric ASCII character so `slug` matches literally in a RewriteCond regex.
+fn escape_regex(slug: &str) -> String {
+  slug.chars().fold(String::new(), |mut out, c| {
+    if c.is_ascii() && !c.is_ascii_alphanumeric() && c != '/' && c != '-' && c != '_' {
+      out.push('\\');
+    }
+    out.push(c);
+    out
+  })
+}
+
+/// Escapes `$` and `%`, which a RewriteRule substitution would expand as backreferences.
+fn escape_substitution(slug: &str) -> String {
+  slug.replace('$', "\\$").replace('%', "\\%")
+}
+
 /// `v1.10.0` sorts after `v1.9.0`; a non-numeric segment sorts as 0.
 fn version_key(version: &str) -> Vec<u64> {
   version.trim_start_matches('v').split('.').map(|n| n.parse().unwrap_or(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::render;
+
+  #[test]
+  fn regex_metacharacters_in_the_slug_are_escaped_in_the_request_uri_guard() {
+    let out = render("vocabulary-hub.example", "ontology/a+b(c)*", &["v1.0.0"]);
+    assert!(out.contains(r"RewriteCond %{REQUEST_URI} !^/ontology/a\+b\(c\)\*(/|$)"), "{out}");
+  }
+
+  #[test]
+  fn substitution_backreference_characters_in_the_slug_are_escaped() {
+    let out = render("vocabulary-hub.example", "ontology/a$1%2", &["v1.0.0"]);
+    assert!(out.contains(r"https://%{HTTP_HOST}/ontology/a\$1\%2/v1.0.0 [R=302,L]"), "{out}");
+  }
 }
