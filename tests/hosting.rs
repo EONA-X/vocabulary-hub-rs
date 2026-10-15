@@ -58,3 +58,29 @@ fn the_router_adds_the_trailing_slash_with_an_explicit_https_url() {
     "{router}"
   );
 }
+
+#[test]
+fn every_hosting_path_the_scripts_reference_exists() {
+  let mut missing = Vec::new();
+  for dir in ["scripts", "scripts/examples"] {
+    for entry in fs::read_dir(dir).unwrap() {
+      let path = entry.unwrap().path();
+      if path.extension().is_none_or(|ext| ext != "sh") {
+        continue;
+      }
+      for line in fs::read_to_string(&path).unwrap().lines() {
+        let mut rest = line;
+        while let Some(at) = rest.find("hosting/") {
+          let tail = &rest[at..];
+          let end = tail.find(|c: char| !(c.is_ascii_alphanumeric() || "_./-".contains(c))).unwrap_or(tail.len());
+          let referenced = tail[..end].trim_end_matches(['.', ',']);
+          if !std::path::Path::new(referenced).exists() {
+            missing.push(format!("{}: {referenced}", path.display()));
+          }
+          rest = &tail[end..];
+        }
+      }
+    }
+  }
+  assert!(missing.is_empty(), "scripts reference hosting files that do not exist: {missing:?}");
+}

@@ -11,10 +11,10 @@
 #   dev.test        a stand-in dev-preview domain: a stand-in Hub UI build
 #                   (and its docs/) at the root, root .htaccess =
 #                   examples/dev/.htaccess + hosting/router.htaccess +
-#                   hosting/hub-ui.htaccess (scripts/examples/dev-root.sh),
+#                   hosting/examples/hub-ui.htaccess (scripts/examples/dev-root.sh),
 #                   and every tree merged under voc/
 #   <host>.test     one per host tree: a stand-in Hub UI at the root,
-#                   hosting/router.htaccess + hosting/hub-ui.htaccess, and
+#                   hosting/router.htaccess + hosting/examples/hub-ui.htaccess, and
 #                   that host's tree under voc/ -- the layout every
 #                   published host gets here. An instantiation that fronts a
 #                   given host with its own CMS instead (installing just
@@ -54,7 +54,7 @@ for tree in "$site"/*/; do
   rm -rf "$root"
   mkdir -p "$root/voc"
   cp -r "$tree." "$root/voc/"
-  cat "$here"/hosting/router.htaccess "$here"/hosting/hub-ui.htaccess > "$root/.htaccess"
+  cat "$here"/hosting/router.htaccess "$here"/hosting/examples/hub-ui.htaccess > "$root/.htaccess"
   printf 'hub ui\n' > "$root/index.html"
 done
 hosts=${hosts# }
