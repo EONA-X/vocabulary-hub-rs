@@ -97,7 +97,7 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
 "#,
     title = esc(&page.title),
     version = esc(&page.version),
-    canonical = esc(page.namespace.trim_end_matches('#')),
+    canonical = esc(&format!("{}/{}/{}/{}", v.base.trim_end_matches('/'), v.kind, v.slug, v.version)),
   )
 }
 

@@ -279,6 +279,28 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
 }
 
 #[test]
+fn the_html_canonical_is_the_published_iri_even_when_the_source_namespace_differs() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fs::create_dir_all(src.path().join("example-profile/v0.0.1")).unwrap();
+  fs::write(
+    src.path().join("example-profile/v0.0.1/ontology.ttl"),
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://elsewhere.example/alpha#> a owl:Ontology .\n<https://elsewhere.example/alpha#T> a owl:Class .\n",
+  )
+  .unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/metadata.ttl"), METADATA).unwrap();
+  let published = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+
+  write_site(out.path(), &published, &config(), &DefaultComponents).unwrap();
+
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(
+    html.contains(r#"<link rel="canonical" href="https://example.test/vocabulary/example-profile/v0.0.1">"#),
+    "{html}"
+  );
+}
+
+#[test]
 fn a_build_that_publishes_nothing_still_produces_its_output_directory() {
   let out = tempfile::tempdir().unwrap();
   let site = out.path().join("public");
