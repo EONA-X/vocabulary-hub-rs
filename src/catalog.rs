@@ -418,12 +418,23 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
     g.iri(catalog, &format!("{DCAT}dataset"), &v.asset_iri());
   }
 
+  // Blank nodes get catalog-wide labels `m0`, `m1`, ... in asset order, so
+  // unchanged input rebuilds to identical files.
+  let mut next_blank_node = 0;
   for versions in assets.values() {
     let Some(latest) = versions.last() else { continue };
     let asset = latest.asset_iri();
     // Standardize the blank nodes apart: labels are only unique per file.
     let mut fresh: HashMap<BlankNode, BlankNode> = HashMap::new();
-    let mut rename = |b: &BlankNode| fresh.entry(b.clone()).or_default().clone();
+    let mut rename = |b: &BlankNode| {
+      fresh
+        .entry(b.clone())
+        .or_insert_with(|| {
+          next_blank_node += 1;
+          BlankNode::new_unchecked(format!("m{}", next_blank_node - 1))
+        })
+        .clone()
+    };
     for t in &latest.metadata {
       let subject = match &t.subject {
         NamedOrBlankNode::BlankNode(b) => NamedOrBlankNode::BlankNode(rename(b)),

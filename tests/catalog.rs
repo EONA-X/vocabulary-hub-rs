@@ -654,3 +654,15 @@ fn the_catalog_omits_modified_when_the_build_stamp_is_not_a_timestamp() {
 
   assert!(node(&nodes, CATALOG_IRI).get(format!("{DCT}modified")).is_none());
 }
+
+#[test]
+fn building_the_catalog_twice_from_unchanged_input_yields_identical_files() {
+  let src = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  let build = || {
+    let out = tempfile::tempdir().unwrap();
+    write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+    ["catalog.ttl", "catalog.jsonld"].map(|f| fs::read_to_string(out.path().join(f)).unwrap())
+  };
+  assert_eq!(build(), build());
+}
