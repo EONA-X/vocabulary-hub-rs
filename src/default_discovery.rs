@@ -77,6 +77,9 @@ impl Discoverer for DefaultDiscoverer {
   }
 
   fn version_dirs(&self, dir: &Path) -> Result<Vec<String>, String> {
+    if !dir.is_dir() {
+      return Err(format!("{}: not a directory", dir.display()));
+    }
     let mut dirs = Vec::new();
     for slug in subdirs(dir)? {
       for version in subdirs(&dir.join(&slug))? {
@@ -119,7 +122,7 @@ fn kind(dir: &Path, default_base: &str) -> Option<&'static str> {
 }
 
 /// Every directory name directly under `dir`, or none if `dir` itself does
-/// not exist.
+/// not exist (callers check the vocabularies root exists first).
 fn subdirs(dir: &Path) -> Result<Vec<String>, String> {
   let entries = match fs::read_dir(dir) {
     Ok(entries) => entries,

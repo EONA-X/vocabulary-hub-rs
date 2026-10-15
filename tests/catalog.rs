@@ -471,3 +471,15 @@ fn canonical(t: &oxrdf::Triple) -> String {
   let term = |s: String| if s.starts_with("_:") { "_:b".to_string() } else { s };
   format!("{} {} {}", term(t.subject.to_string()), t.predicate, term(t.object.to_string()))
 }
+
+#[test]
+fn a_missing_vocabularies_dir_is_an_error_that_leaves_the_existing_catalog_untouched() {
+  let tmp = tempfile::tempdir().unwrap();
+  let docs = tmp.path().join("docs");
+  write(&docs, "ontologies.json", "previously published");
+
+  let result = write_catalog(&tmp.path().join("does-not-exist"), &docs, BUILT_AT, &config(), &DefaultDiscoverer);
+
+  assert!(result.is_err(), "expected an error, got {result:?}");
+  assert_eq!(fs::read_to_string(docs.join("ontologies.json")).unwrap(), "previously published");
+}
