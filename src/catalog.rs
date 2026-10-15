@@ -359,7 +359,20 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
   for versions in assets.values() {
     let Some(latest) = versions.last() else { continue };
     let asset = latest.asset_iri();
-    g.triples.extend(latest.metadata.iter().cloned());
+    // Standardize the blank nodes apart: labels are only unique per file.
+    let mut fresh: HashMap<BlankNode, BlankNode> = HashMap::new();
+    let mut rename = |b: &BlankNode| fresh.entry(b.clone()).or_default().clone();
+    for t in &latest.metadata {
+      let subject = match &t.subject {
+        NamedOrBlankNode::BlankNode(b) => NamedOrBlankNode::BlankNode(rename(b)),
+        other => other.clone(),
+      };
+      let object = match &t.object {
+        Term::BlankNode(b) => Term::BlankNode(rename(b)),
+        other => other.clone(),
+      };
+      g.triples.push(Triple::new(subject, t.predicate.clone(), object));
+    }
     g.plain(&asset, &format!("{DCT}identifier"), &latest.slug);
     g.plain(&asset, &format!("{DCAT}version"), &latest.version);
     if let Some(ns) = &latest.namespace {

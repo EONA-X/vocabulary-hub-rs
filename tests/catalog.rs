@@ -501,3 +501,40 @@ fn a_published_version_carries_the_same_term_iris_in_the_catalog_as_on_the_site(
   assert!(nt.contains(&format!("<{SITE_BASE}ontology/rel/v1#Thing>")), "{nt}");
   assert!(!nt.contains(CATALOG_IRI), "{nt}");
 }
+
+#[test]
+fn blank_nodes_authored_with_the_same_label_in_two_metadata_files_stay_two_nodes_in_the_catalog() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for slug in ["org-a", "org-b"] {
+    let extra = format!("<> dcterms:creator _:org .\n_:org foaf:name \"Org of {slug}\" .");
+    write(
+      src.path(),
+      &format!("{slug}/v1/metadata.ttl"),
+      &metadata(slug, "1", "c_89b4bdb7", "CURRENT", &extra),
+    );
+    write(
+      src.path(),
+      &format!("{slug}/v1/ontology.ttl"),
+      &format!("@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/{slug}#> a owl:Ontology .\n"),
+    );
+  }
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let triples: Vec<oxrdf::Triple> = oxttl::TurtleParser::new()
+    .for_reader(fs::read(out.path().join("catalog.ttl")).unwrap().as_slice())
+    .map(|t| t.unwrap())
+    .collect();
+  let creators: HashSet<String> = triples
+    .iter()
+    .filter(|t| t.predicate.as_str() == format!("{DCT}creator"))
+    .map(|t| t.object.to_string())
+    .collect();
+  assert_eq!(creators.len(), 2, "each asset keeps its own creator node: {creators:?}");
+  for creator in &creators {
+    let names = triples
+      .iter()
+      .filter(|t| t.subject.to_string() == *creator && t.predicate.as_str() == format!("{FOAF}name"))
+      .count();
+    assert_eq!(names, 1, "{creator} carries exactly one name");
+  }
+}
