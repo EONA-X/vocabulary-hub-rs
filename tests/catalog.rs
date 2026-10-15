@@ -12,7 +12,7 @@ use vocabulary_hub_rs::catalog::write_catalog;
 use vocabulary_hub_rs::config::HubConfig;
 use vocabulary_hub_rs::default_discovery::DefaultDiscoverer;
 
-const BUILT_AT: &str = "2026-10-01 12:00 UTC";
+const BUILT_AT: &str = "2026-10-01T12:00:00Z";
 const DCT: &str = "http://purl.org/dc/terms/";
 const DCAT: &str = "http://www.w3.org/ns/dcat#";
 const FOAF: &str = "http://xmlns.com/foaf/0.1/";
@@ -310,7 +310,10 @@ fn the_catalog_is_a_dcat_catalog_under_the_configured_catalog_iri() {
 
   let catalog = node(&nodes, CATALOG_IRI);
   assert_eq!(catalog["@type"], json!([format!("{DCAT}Catalog")]));
-  assert_eq!(catalog[&format!("{DCT}modified")], json!([{"@value": BUILT_AT}]));
+  assert_eq!(
+    catalog[&format!("{DCT}modified")],
+    json!([{"@value": BUILT_AT, "@type": "http://www.w3.org/2001/XMLSchema#dateTime"}])
+  );
   assert_eq!(
     catalog[&format!("{DCT}title")],
     json!([{"@value": "Example Vocabulary Hub", "@language": "en"}])
@@ -369,7 +372,9 @@ fn each_asset_is_a_dataset_carrying_its_latest_metadata_and_the_computed_links()
   for d in &distributions {
     let d = node(&nodes, d);
     assert_eq!(d["@type"], json!([format!("{DCAT}Distribution")]));
-    assert_eq!(d[&format!("{DCAT}mediaType")].as_array().unwrap().len(), 1);
+    let media_type = ids(&d[&format!("{DCAT}mediaType")]);
+    assert_eq!(media_type.len(), 1);
+    assert!(media_type[0].starts_with("http://www.iana.org/assignments/media-types/"), "{media_type:?}");
     let url = &ids(&d[&format!("{DCAT}downloadURL")])[0];
     assert!(url.starts_with(&format!("{DOCS_BASE}/vocab-alpha/v2.1.0/ontology.")), "{url}");
     assert!(d[&format!("{DCT}title")][0]["@value"].as_str().unwrap().starts_with("Vocab Alpha 2.1.0 ("));
@@ -615,4 +620,14 @@ fn a_catalog_iri_with_a_trailing_slash_does_not_mint_double_slash_iris() {
 
   let catalog = fs::read_to_string(out.path().join("catalog.ttl")).unwrap();
   assert!(!catalog.contains("catalog//"), "no doubled slash in minted IRIs: {catalog}");
+}
+
+#[test]
+fn the_catalog_omits_modified_when_the_build_stamp_is_not_a_timestamp() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  write_catalog(src.path(), out.path(), "local build", &config(), &DefaultDiscoverer).unwrap();
+
+  let nodes = json(out.path(), "catalog.jsonld");
+
+  assert!(node(&nodes, CATALOG_IRI).get(format!("{DCT}modified")).is_none());
 }

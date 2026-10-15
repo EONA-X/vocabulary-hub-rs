@@ -40,6 +40,41 @@ const SCHEMA_LOGO: [&str; 2] = ["http://schema.org/logo", "https://schema.org/lo
 const FILE_TYPE: &str = "http://publications.europa.eu/resource/authority/file-type/";
 const DEFAULT_THUMBNAIL: &str = "owl-illustration.svg";
 
+const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
+/// The IANA media-type registry, the range of `dcat:mediaType` (`dct:MediaType`).
+const IANA_MEDIA_TYPE: &str = "http://www.iana.org/assignments/media-types/";
+
+/// Whether `s` is an `xsd:dateTime` lexical form: `YYYY-MM-DDThh:mm:ss[.fff](Z|±hh:mm)`.
+fn is_xsd_date_time(s: &str) -> bool {
+  let b = s.as_bytes();
+  let digits = |r: std::ops::Range<usize>| b.get(r).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
+  let num = |r: std::ops::Range<usize>| s[r].parse::<u32>().unwrap_or(u32::MAX);
+  if !(s.is_ascii() && b.len() >= 19 && digits(0..4) && digits(5..7) && digits(8..10) && digits(11..13) && digits(14..16) && digits(17..19)) {
+    return false;
+  }
+  if (b[4], b[7], b[10], b[13], b[16]) != (b'-', b'-', b'T', b':', b':') {
+    return false;
+  }
+  if !(1..=12).contains(&num(5..7)) || !(1..=31).contains(&num(8..10)) || num(11..13) > 24 || num(14..16) > 59 || num(17..19) > 59 {
+    return false;
+  }
+  let mut rest = &s[19..];
+  if let Some(frac) = rest.strip_prefix('.') {
+    let n = frac.bytes().take_while(u8::is_ascii_digit).count();
+    if n == 0 {
+      return false;
+    }
+    rest = &frac[n..];
+  }
+  match rest.as_bytes() {
+    b"Z" => true,
+    [b'+' | b'-', h1, h2, b':', m1, m2] => {
+      [h1, h2, m1, m2].iter().all(|c| c.is_ascii_digit()) && rest[1..3].parse::<u32>().unwrap() <= 14 && rest[4..6].parse::<u32>().unwrap() <= 59
+    }
+    _ => false,
+  }
+}
+
 /// The four published formats: extension, label, media type, EU file type.
 const FORMATS: [(&str, &str, &str, &str); 4] = [
   ("ttl", "Turtle", "text/turtle", "RDF_TURTLE"),
@@ -355,7 +390,13 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
   g.iri(catalog, RDF_TYPE, &format!("{DCAT}Catalog"));
   g.lang(catalog, &format!("{DCT}title"), &config.catalog_title);
   g.lang(catalog, &format!("{DCT}description"), &config.catalog_description);
-  g.plain(catalog, &format!("{DCT}modified"), built_at);
+  if is_xsd_date_time(built_at) {
+    g.push(
+      catalog,
+      &format!("{DCT}modified"),
+      Literal::new_typed_literal(built_at, NamedNode::new_unchecked(format!("{XSD}dateTime"))).into(),
+    );
+  }
   // Vocabularies in slug order, then crosswalks.
   let (crosswalks, others): (Vec<_>, Vec<_>) = assets.values().filter_map(|versions| versions.last()).partition(|v| v.is_crosswalk());
   for v in others.iter().chain(&crosswalks) {
@@ -420,7 +461,7 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
         g.iri(&distribution, RDF_TYPE, &format!("{DCAT}Distribution"));
         g.lang(&distribution, &format!("{DCT}title"), &format!("{title} {} ({label})", v.version));
         g.iri(&distribution, &format!("{DCAT}downloadURL"), &format!("{docs_base}/{}", v.file(ext)));
-        g.plain(&distribution, &format!("{DCAT}mediaType"), media_type);
+        g.iri(&distribution, &format!("{DCAT}mediaType"), &format!("{IANA_MEDIA_TYPE}{media_type}"));
         g.iri(&distribution, &format!("{DCT}format"), &format!("{FILE_TYPE}{file_type}"));
       }
       previous = Some(v);
