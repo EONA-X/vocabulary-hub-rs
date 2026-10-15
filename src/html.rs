@@ -6,8 +6,10 @@
 //!
 //! The page is a Yew component rendered server-side to a static file, styled
 //! by the stylesheets a [`crate::config::HubConfig`] carries — [`crate::site::write_site`]
-//! ships them next to it under `assets/`. One `<article id="{local name}">`
-//! per term under the namespace, so the hash IRI a person follows
+//! ships them once per asset type, one directory up at `../assets/` (a
+//! sibling of the slug directory this page sits in), so every slug of that
+//! asset type links to the same copy rather than carrying its own. One
+//! `<article id="{local name}">` per term under the namespace, so the hash IRI a person follows
 //! (`…/v0.0.1#GenericClaim`) scrolls to that term. No script: the host serves
 //! flat files and nothing else.
 
@@ -69,7 +71,7 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
   let stylesheets: String = config
     .stylesheets
     .iter()
-    .map(|(file, _)| format!("<link rel=\"stylesheet\" href=\"assets/{file}\">\n"))
+    .map(|(file, _)| format!("<link rel=\"stylesheet\" href=\"../assets/{file}\">\n"))
     .collect();
   let extra_page_css = config.extra_page_css;
   format!(
