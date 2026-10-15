@@ -155,7 +155,6 @@ impl PageData {
   fn build(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> PageData {
     let idx = Indices::build(&Ontology { triples: v.triples.clone() });
     let ns = v.namespace.as_str();
-    let term_ns = term_namespace(ns);
     let plain = |s: &str| vec![LiteralValue::new(s.to_string(), None, None)];
 
     let mut overview = vec![
@@ -172,29 +171,26 @@ impl PageData {
     let title = text(&idx, ns, DCT_TITLE).or_else(|| label(&idx, ns)).unwrap_or(&v.slug).to_string();
     let asset_type = v.kind.clone();
 
-    let terms: Vec<TermData> = subjects_in_namespace(&v.triples, &term_ns)
+    let terms: Vec<TermData> = subjects_in_namespace(&v.triples, ns)
       .into_iter()
-      .filter(|t| t.len() > term_ns.len())
-      .map(|t| {
-        let local = t[term_ns.len()..].to_string();
-        TermData {
-          label: label(&idx, &t).unwrap_or(&local).to_string(),
-          curie: curie(v, &t),
-          type_badges: idx
-            .links(&t, RDF_TYPE)
-            .iter()
-            .map(|ty| components.onto_badge(AttrValue::from(curie(v, ty)), BadgeVariant::Kind(term_kind(ty))))
-            .collect(),
-          notes: TERM_NOTES
-            .iter()
-            .filter_map(|(pred, heading)| {
-              let values = literals(&v.triples, &t, pred);
-              (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
-            })
-            .collect(),
-          members: idx.links(&t, &format!("{SKOS}member")).iter().map(|m| (href(v, m), curie(v, m))).collect(),
-          anchor: local,
-        }
+      .filter_map(|t| Some((term_local(ns, &t)?.to_string(), t)))
+      .map(|(local, t)| TermData {
+        label: label(&idx, &t).unwrap_or(&local).to_string(),
+        curie: curie(v, &t),
+        type_badges: idx
+          .links(&t, RDF_TYPE)
+          .iter()
+          .map(|ty| components.onto_badge(AttrValue::from(curie(v, ty)), BadgeVariant::Kind(term_kind(ty))))
+          .collect(),
+        notes: TERM_NOTES
+          .iter()
+          .filter_map(|(pred, heading)| {
+            let values = literals(&v.triples, &t, pred);
+            (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
+          })
+          .collect(),
+        members: idx.links(&t, &format!("{SKOS}member")).iter().map(|m| (href(v, m), curie(v, m))).collect(),
+        anchor: local,
       })
       .collect();
     let section_terms = components.section_head(
@@ -338,20 +334,23 @@ fn label<'a>(idx: &'a Indices, subject: &str) -> Option<&'a str> {
   text(idx, subject, RDFS_LABEL).or_else(|| text(idx, subject, &format!("{SKOS}prefLabel")))
 }
 
-/// The IRI prefix its terms are minted under: the root IRI itself when it ends
-/// in `#` or `/`, else the root with `#` appended (`<…/onto>` mints `…/onto#Term`),
-/// so a term's local name never carries the separator or a sibling's path.
-fn term_namespace(root: &str) -> String {
-  if root.ends_with(['#', '/']) { root.to_string() } else { format!("{root}#") }
+/// The local name of `iri` if it is a term of the vocabulary rooted at `root`:
+/// what follows the root when it ends in `#` or `/`, else what follows
+/// `root#` or `root/` (`<…/onto>` mints `…/onto#Term` or `…/onto/Term`), so a
+/// local name never carries the separator or a sibling's path.
+fn term_local<'a>(root: &str, iri: &'a str) -> Option<&'a str> {
+  let rest = iri.strip_prefix(root)?;
+  let local = if root.ends_with(['#', '/']) { rest } else { rest.strip_prefix(['#', '/'])? };
+  (!local.is_empty()).then_some(local)
 }
 
 /// In-page anchor for a term of this vocabulary, the IRI itself for http(s)
 /// IRIs, and none for any other scheme (`javascript:`, `data:`, ...): vocabulary
 /// content must not be able to plant a script-running link.
 fn href(v: &Vocabulary, iri: &str) -> Option<String> {
-  match iri.strip_prefix(term_namespace(&v.namespace).as_str()) {
-    Some(local) if !local.is_empty() => Some(format!("#{local}")),
-    _ => {
+  match term_local(&v.namespace, iri) {
+    Some(local) => Some(format!("#{local}")),
+    None => {
       let scheme = iri.split(':').next().unwrap_or_default();
       (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then(|| iri.to_string())
     }
@@ -369,7 +368,6 @@ fn curie(v: &Vocabulary, iri: &str) -> String {
     .map_or_else(|| iri.to_string(), |(_, _, c)| c)
 }
 
-/// For the hand-written `<head>` only; the body is escaped by Yew.
 /// A relative link to a sibling file named after the version directory. The name is percent-encoded as a
 /// path segment and prefixed with `./`, so a colon cannot turn it into a `scheme:` URL and `#`, `?` or `%`
 /// stay literal.
@@ -387,6 +385,7 @@ fn format_href(version: &str, ext: &str) -> String {
   href
 }
 
+/// For the hand-written `<head>` only; the body is escaped by Yew.
 fn esc(s: &str) -> String {
   s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
@@ -421,6 +420,26 @@ mod tests {
     assert!(page.contains("id=\"Thing\""), "{page}");
     assert!(page.contains("href=\"#Thing\""), "{page}");
     assert!(!page.contains("id=\"#Thing\"") && !page.contains("##Thing"), "{page}");
+    assert!(!page.contains("logy-other"), "{page}");
+  }
+
+  #[test]
+  fn an_ontology_iri_without_a_trailing_separator_still_lists_its_slash_terms() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+       <http://example.org/onto> a owl:Ontology .\n<http://example.org/onto/Thing> a owl:Class .\n\
+       <http://example.org/ontology-other/X> a owl:Class .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    let page = render(&discovery.published[0], &HubConfig::default(), &DefaultComponents);
+
+    assert!(page.contains("id=\"Thing\""), "{page}");
     assert!(!page.contains("logy-other"), "{page}");
   }
 
