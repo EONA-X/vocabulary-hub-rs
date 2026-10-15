@@ -61,12 +61,19 @@ impl Discoverer for DefaultDiscoverer {
           continue;
         }
       };
-      let Some(namespace) = root(&triples) else {
-        discovery.skipped.push(Skipped {
-          dir_name,
-          reason: format!("no single {OWL_ONTOLOGY} or {SKOS_CONCEPT_SCHEME} root"),
-        });
-        continue;
+      // A crosswalk (`alignment.ttl`) describes links between other
+      // vocabularies and usually has no root of its own, so it falls back to
+      // its published document IRI as namespace.
+      let namespace = match root(&triples) {
+        Some(namespace) => namespace,
+        None if graph_file == "alignment.ttl" => format!("{default_base}{kind}/{dir_name}#"),
+        None => {
+          discovery.skipped.push(Skipped {
+            dir_name,
+            reason: format!("no single {OWL_ONTOLOGY} or {SKOS_CONCEPT_SCHEME} root"),
+          });
+          continue;
+        }
       };
       discovery.published.push(Vocabulary {
         base: default_base.to_string(),
@@ -207,5 +214,23 @@ mod tests {
     assert_eq!(discovery.skipped.len(), 1);
     assert_eq!(discovery.skipped[0].dir_name, "bad/v1");
     assert!(discovery.skipped[0].reason.contains("metadata.ttl"));
+  }
+
+  #[test]
+  fn an_alignment_without_an_ontology_root_is_still_published() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("xw/v0.1.0");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("alignment.ttl"),
+      "@prefix void: <http://rdfs.org/ns/void#> .\n<https://example.org/x/a-b> a void:Linkset .\n",
+    )
+    .unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.skipped.is_empty(), "{:?}", discovery.skipped);
+    assert_eq!(discovery.published.len(), 1);
+    assert_eq!(discovery.published[0].namespace, "https://hub.test/ontology/xw/v0.1.0#");
   }
 }
