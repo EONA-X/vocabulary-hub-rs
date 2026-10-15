@@ -358,13 +358,15 @@ fn href(v: &Vocabulary, iri: &str) -> Option<String> {
   }
 }
 
-/// Shortest CURIE the source's own prefix table allows, else the full IRI.
+/// Shortest CURIE the source's own prefix table allows, else the full IRI. Ties on
+/// namespace length go to the alphabetically first prefix, so the choice never
+/// depends on the parser's prefix order.
 fn curie(v: &Vocabulary, iri: &str) -> String {
   v.prefixes
     .iter()
-    .filter_map(|(p, ns)| iri.strip_prefix(ns.as_str()).map(|local| (ns.len(), format!("{p}:{local}"))))
-    .max_by_key(|(len, _)| *len)
-    .map_or_else(|| iri.to_string(), |(_, c)| c)
+    .filter_map(|(p, ns)| iri.strip_prefix(ns.as_str()).map(|local| (ns.len(), p, format!("{p}:{local}"))))
+    .max_by(|(la, pa, _), (lb, pb, _)| la.cmp(lb).then_with(|| pb.cmp(pa)))
+    .map_or_else(|| iri.to_string(), |(_, _, c)| c)
 }
 
 /// For the hand-written `<head>` only; the body is escaped by Yew.
@@ -420,6 +422,29 @@ mod tests {
     assert!(page.contains("href=\"#Thing\""), "{page}");
     assert!(!page.contains("id=\"#Thing\"") && !page.contains("##Thing"), "{page}");
     assert!(!page.contains("logy-other"), "{page}");
+  }
+
+  #[test]
+  fn a_namespace_bound_to_two_prefixes_yields_the_same_curie_whatever_order_the_parser_listed_them_in() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n@prefix ex: <http://x.org/ont#> .\n@prefix ex2: <http://x.org/ont#> .\n\
+       <http://x.org/ont#> a owl:Ontology .\nex:T a owl:Class .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+    let mut v = discovery.published[0].clone();
+
+    v.prefixes.sort();
+    let forward = curie(&v, "http://x.org/ont#T");
+    v.prefixes.reverse();
+    let backward = curie(&v, "http://x.org/ont#T");
+
+    assert_eq!(forward, backward);
+    assert_eq!(forward, "ex:T");
   }
 
   #[test]
