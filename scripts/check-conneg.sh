@@ -59,12 +59,16 @@ expect 'application/json' 'application/ld+json' jsonld
 expect 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' 'text/html' html
 expect '*/*' 'text/html' html
 
-# The HTML page's EONA-X UI toolkit stylesheets, next to it.
+# The HTML page's configured stylesheets, shared by every slug of this
+# asset type at {asset-type}/assets/ (not next to this slug: write_site
+# writes them once per asset type, so every slug of it links up to the same
+# URL instead of carrying its own copy).
+kind=${slug%%/*}
 for css in tokens components ontology; do
-  got=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$base/$slug/assets/$css.css")
+  got=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$base/$kind/assets/$css.css")
   case "$got" in
-    "200 text/css"*) ok "assets/$css.css -> $got" ;;
-    *) ko "assets/$css.css -> $got (want 200 text/css)" ;;
+    "200 text/css"*) ok "$kind/assets/$css.css -> $got" ;;
+    *) ko "$kind/assets/$css.css -> $got (want 200 text/css)" ;;
   esac
 done
 

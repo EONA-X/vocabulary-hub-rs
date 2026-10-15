@@ -20,6 +20,17 @@ use crate::{htaccess, html};
 /// - `{asset-type}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
 ///   out of the site root so a host serving other things too can share its
 ///   root `.htaccess`.
+/// - `{asset-type}/assets/{file}` — the configured stylesheets, written once per
+///   `{host}/{asset-type}` pair rather than once per slug: a real deployment
+///   publishes many slugs of the same asset type, and they would otherwise all
+///   ship byte-identical copies of the same CSS under a different URL each.
+///   Every slug's HTML page links up to this shared location
+///   (`html::render`'s `../assets/{file}`). Sharing stops at the asset-type
+///   boundary, not the whole host, because that is as far as
+///   `hosting/router.htaccess` already rewrites without any change: it maps
+///   `{asset-type}/<anything>` internally to the same place, `assets/`
+///   included, whereas a bare top-level `assets/` would need a router change
+///   in every deployment.
 pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig, components: &dyn Components) -> std::io::Result<Vec<PathBuf>> {
   // Exists even when nothing is published — the normal case until upstream
   // mints a vocabulary under the site base.
@@ -52,17 +63,22 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig, c
     }
   }
 
-  for (slug, (host, versions)) in versions_by_slug {
-    let dir = PathBuf::from(host).join(&slug);
-    // The configured stylesheets, once per slug, shared by its versions'
-    // HTML pages (linked as `assets/<file>`).
-    for (file, css) in config.stylesheets {
-      let rel = dir.join("assets").join(file);
-      write_if_changed(&out.join(&rel), css.as_bytes())?;
-      written.push(rel);
+  // (host, asset-type) pairs whose shared assets/ have already been written
+  // this call, so two slugs of the same type don't write them twice.
+  let mut assets_written: std::collections::BTreeSet<(&str, &str)> = std::collections::BTreeSet::new();
+  for (slug, (host, versions)) in &versions_by_slug {
+    let kind = slug.split('/').next().expect("slug is always \"{kind}/{slug}\"");
+    if assets_written.insert((host, kind)) {
+      let assets_dir = PathBuf::from(*host).join(kind).join("assets");
+      for (file, css) in config.stylesheets {
+        let rel = assets_dir.join(file);
+        write_if_changed(&out.join(&rel), css.as_bytes())?;
+        written.push(rel);
+      }
     }
+    let dir = PathBuf::from(*host).join(slug);
     let rel = dir.join(".htaccess");
-    write_if_changed(&out.join(&rel), htaccess::render(host, &slug, &versions).as_bytes())?;
+    write_if_changed(&out.join(&rel), htaccess::render(host, slug, versions).as_bytes())?;
     written.push(rel);
   }
   Ok(written)

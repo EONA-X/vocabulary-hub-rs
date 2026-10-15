@@ -109,7 +109,11 @@ fn two_slugs_of_the_same_asset_type_share_one_copy_of_each_stylesheet() {
   let written = write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
 
   let css_writes = written.iter().filter(|p| p.extension().is_some_and(|e| e == "css")).count();
-  assert_eq!(css_writes, config().stylesheets.len(), "expected one copy of each stylesheet, not one per slug: {written:?}");
+  assert_eq!(
+    css_writes,
+    config().stylesheets.len(),
+    "expected one copy of each stylesheet, not one per slug: {written:?}"
+  );
   for (file, content) in config().stylesheets {
     assert_eq!(
       fs::read_to_string(out.path().join("example.test/vocabulary/assets").join(file)).unwrap(),
@@ -284,7 +288,7 @@ fn the_html_page_is_styled_by_the_configured_stylesheets_shipped_next_to_it() {
       "{file} not linked:\n{html}"
     );
     assert_eq!(
-      fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/assets").join(file)).unwrap(),
+      fs::read_to_string(out.path().join("example.test/vocabulary/assets").join(file)).unwrap(),
       content,
       "{file}"
     );
