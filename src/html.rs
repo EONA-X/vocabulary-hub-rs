@@ -71,6 +71,7 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
     .iter()
     .map(|(file, _)| format!("<link rel=\"stylesheet\" href=\"assets/{file}\">\n"))
     .collect();
+  let extra_page_css = config.extra_page_css;
   format!(
     r#"<!doctype html>
 <html lang="en">
@@ -81,7 +82,7 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
 <link rel="canonical" href="{canonical}">
 <link rel="alternate" type="text/turtle" href="{version}.ttl">
 <link rel="alternate" type="application/ld+json" href="{version}.jsonld">
-{stylesheets}<style>{PAGE_CSS}</style>
+{stylesheets}<style>{PAGE_CSS}{extra_page_css}</style>
 </head>
 <body>
 {body}

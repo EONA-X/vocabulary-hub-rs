@@ -41,6 +41,12 @@ pub struct HubConfig {
   pub catalog_title: String,
   /// The DCAT catalog's `dct:description`.
   pub catalog_description: String,
+  /// CSS appended after [`crate::html`]'s own page-layout rules, in the same
+  /// `<style>` block — for overrides the configured [`Self::stylesheets`]
+  /// alone cannot express, e.g. cancelling space a design system's own CSS
+  /// reserves for a chrome element this page does not render. Empty by
+  /// default.
+  pub extra_page_css: &'static str,
 }
 
 /// A plain circular mark: just enough that the default header is not empty.
@@ -67,6 +73,7 @@ impl Default for HubConfig {
       docs_base: format!("{site_base}docs"),
       catalog_title: "Vocabulary Hub".to_string(),
       catalog_description: "A catalog of ontologies, shapes, vocabularies, code lists and crosswalks.".to_string(),
+      extra_page_css: "",
       site_base,
     }
   }

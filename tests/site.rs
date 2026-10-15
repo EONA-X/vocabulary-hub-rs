@@ -242,6 +242,21 @@ fn the_html_page_is_styled_by_the_configured_stylesheets_shipped_next_to_it() {
 }
 
 #[test]
+fn the_html_page_appends_extra_page_css_after_the_built_in_layout_rules() {
+  let out = tempfile::tempdir().unwrap();
+  let src = tempfile::tempdir().unwrap();
+  let config = HubConfig {
+    extra_page_css: "html>body{padding-top:0}",
+    ..config()
+  };
+  write_site(out.path(), &published(src.path()), &config, &DefaultComponents).unwrap();
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(html.contains("</style>"), "{html}");
+  let before_close = html.split("</style>").next().unwrap();
+  assert!(before_close.ends_with("html>body{padding-top:0}"), "extra_page_css not appended last:\n{html}");
+}
+
+#[test]
 fn the_html_page_carries_the_brand_mark_linking_to_the_brand_link() {
   let out = tempfile::tempdir().unwrap();
   let html = html_page(out.path());
