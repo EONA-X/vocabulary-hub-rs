@@ -1,5 +1,8 @@
 //! The human-readable representation of one vocabulary version, rendered
-//! with this crate's own small set of Yew components ([`crate::components`]).
+//! through the [`Components`] the caller passes in — [`crate::default_components::DefaultComponents`]
+//! is a ready-to-use default. [`PageData::build`] resolves every
+//! `Components` call into a plain [`Html`] value up front, so the page
+//! itself only ever embeds already-rendered markup.
 //!
 //! The page is a Yew component rendered server-side to a static file, styled
 //! by the stylesheets a [`crate::config::HubConfig`] carries — [`crate::site::write_site`]
@@ -14,7 +17,7 @@ use std::rc::Rc;
 use rdf_sitegen::{Indices, Ontology, RDF_TYPE, RDFS_COMMENT, RDFS_LABEL, UNTAGGED, subjects_in_namespace};
 use yew::{AttrValue, Html, Properties, function_component, html};
 
-use crate::components::{BadgeVariant, LiteralValue, NavLink, OntoAnnotation, OntoBadge, SectionHead, SimpleFooter, TermKind};
+use crate::components::{BadgeVariant, Components, LiteralValue, NavLink, TermKind};
 use crate::config::HubConfig;
 use crate::model::Vocabulary;
 
@@ -53,8 +56,8 @@ body{margin:0}
 .voc-members{margin:.25rem 0 0;padding-left:1.1rem}
 ";
 
-pub fn render(v: &Vocabulary, config: &HubConfig) -> String {
-  let page = Rc::new(PageData::build(v, config));
+pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> String {
+  let page = Rc::new(PageData::build(v, config, components));
   let runtime = tokio::runtime::Builder::new_current_thread()
     .build()
     .expect("a single-thread runtime for Yew's server renderer");
@@ -92,20 +95,22 @@ pub fn render(v: &Vocabulary, config: &HubConfig) -> String {
 }
 
 /// Everything the page shows, extracted from the graph and the config up
-/// front so the component is a pure function of its props.
+/// front so the component is a pure function of its props. Every markup unit
+/// a [`Components`] renders is resolved to a plain [`Html`] value here too,
+/// once, rather than crossing into Yew's props system as a `&dyn Components`.
 #[derive(PartialEq)]
 struct PageData {
   title: String,
-  asset_type: String,
   version: String,
   namespace: String,
-  overview: Vec<(String, Vec<LiteralValue>)>,
+  overview: Vec<Html>,
+  section_overview: Html,
+  section_terms: Html,
   terms: Vec<TermData>,
   brand_name: String,
   brand_link: String,
-  brand_link_label: String,
   brand_mark_svg: &'static str,
-  footer_text: String,
+  footer: Html,
 }
 
 #[derive(PartialEq)]
@@ -113,13 +118,13 @@ struct TermData {
   anchor: String,
   label: String,
   curie: String,
-  types: Vec<(String, TermKind)>,
-  notes: Vec<(&'static str, Vec<LiteralValue>)>,
+  type_badges: Vec<Html>,
+  notes: Vec<Html>,
   members: Vec<(String, String)>,
 }
 
 impl PageData {
-  fn build(v: &Vocabulary, config: &HubConfig) -> PageData {
+  fn build(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> PageData {
     let idx = Indices::build(&Ontology { triples: v.triples.clone() });
     let ns = v.namespace.as_str();
     let plain = |s: &str| vec![LiteralValue::new(s.to_string(), None, None)];
@@ -135,7 +140,10 @@ impl PageData {
       }
     }
 
-    let terms = subjects_in_namespace(&v.triples, ns)
+    let title = text(&idx, ns, DCT_TITLE).or_else(|| label(&idx, ns)).unwrap_or(&v.slug).to_string();
+    let asset_type = v.kind.clone();
+
+    let terms: Vec<TermData> = subjects_in_namespace(&v.triples, ns)
       .into_iter()
       .filter(|t| t != ns)
       .map(|t| {
@@ -143,12 +151,16 @@ impl PageData {
         TermData {
           label: label(&idx, &t).unwrap_or(&local).to_string(),
           curie: curie(v, &t),
-          types: idx.links(&t, RDF_TYPE).iter().map(|ty| (curie(v, ty), term_kind(ty))).collect(),
+          type_badges: idx
+            .links(&t, RDF_TYPE)
+            .iter()
+            .map(|ty| components.onto_badge(AttrValue::from(curie(v, ty)), BadgeVariant::Kind(term_kind(ty))))
+            .collect(),
           notes: TERM_NOTES
             .iter()
             .filter_map(|(pred, heading)| {
               let values = literals(&idx, &t, pred);
-              (!values.is_empty()).then_some((*heading, values))
+              (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
             })
             .collect(),
           members: idx.links(&t, &format!("{SKOS}member")).iter().map(|m| (href(v, m), curie(v, m))).collect(),
@@ -156,19 +168,30 @@ impl PageData {
         }
       })
       .collect();
+    let section_terms = components.section_head(
+      AttrValue::from("02"),
+      AttrValue::from("Terms"),
+      AttrValue::from(format!("{} terms", terms.len())),
+    );
 
     PageData {
-      title: text(&idx, ns, DCT_TITLE).or_else(|| label(&idx, ns)).unwrap_or(&v.slug).to_string(),
-      asset_type: v.kind.clone(),
+      section_overview: components.section_head(AttrValue::from("01"), AttrValue::from(asset_type), AttrValue::from(title.clone())),
+      title,
       version: v.version.clone(),
       namespace: v.namespace.clone(),
-      overview: overview.into_iter().map(|(h, vals)| (h.to_string(), vals)).collect(),
+      overview: overview
+        .into_iter()
+        .map(|(heading, values)| components.onto_annotation(AttrValue::from(heading), values))
+        .collect(),
+      section_terms,
       terms,
       brand_name: config.brand_name.clone(),
       brand_link: config.brand_link.clone(),
-      brand_link_label: config.brand_link_label.clone(),
       brand_mark_svg: config.brand_mark_svg,
-      footer_text: config.footer_text.clone(),
+      footer: components.simple_footer(
+        AttrValue::from(config.footer_text.clone()),
+        NavLink::new(config.brand_link.clone(), config.brand_link_label.clone()),
+      ),
     }
   }
 }
@@ -182,7 +205,6 @@ struct PageProps {
 fn VocabularyPage(props: &PageProps) -> Html {
   let p = &props.page;
   let logo = Html::from_html_unchecked(AttrValue::from(p.brand_mark_svg));
-  let term_count = format!("{} terms", p.terms.len());
   html! {
     <>
       <header class="voc-header">
@@ -192,11 +214,9 @@ fn VocabularyPage(props: &PageProps) -> Html {
         </div>
       </header>
       <main class="voc-main">
-        <SectionHead number="01" kicker={AttrValue::from(p.asset_type.clone())} title={AttrValue::from(p.title.clone())} />
+        { p.section_overview.clone() }
         <dl>
-          { for p.overview.iter().map(|(heading, values)| html! {
-              <OntoAnnotation label={AttrValue::from(heading.clone())} values={values.clone()} />
-          }) }
+          { for p.overview.iter().cloned() }
         </dl>
         <p class="voc-formats">
           { "Also available as " }
@@ -205,14 +225,14 @@ fn VocabularyPage(props: &PageProps) -> Html {
           <a href={format!("{}.jsonld", p.version)}>{ "JSON-LD" }</a>
         </p>
         if !p.terms.is_empty() {
-          <SectionHead number="02" kicker="Terms" title={AttrValue::from(term_count)} />
+          { p.section_terms.clone() }
           <ul class="voc-toc">
             { for p.terms.iter().map(|t| html! { <li><a href={format!("#{}", t.anchor)}>{ &t.label }</a></li> }) }
           </ul>
           { for p.terms.iter().map(term) }
         }
       </main>
-      <SimpleFooter text={AttrValue::from(p.footer_text.clone())} link={NavLink::new(p.brand_link.clone(), p.brand_link_label.clone())} />
+      { p.footer.clone() }
     </>
   }
 }
@@ -223,14 +243,10 @@ fn term(t: &TermData) -> Html {
       <h3>{ &t.label }</h3>
       <p class="voc-term__id">
         <code>{ &t.curie }</code>
-        { for t.types.iter().map(|(label, kind)| html! {
-            <OntoBadge label={AttrValue::from(label.clone())} variant={BadgeVariant::Kind(*kind)} />
-        }) }
+        { for t.type_badges.iter().cloned() }
       </p>
       <dl>
-        { for t.notes.iter().map(|(heading, values)| html! {
-            <OntoAnnotation label={*heading} values={values.clone()} />
-        }) }
+        { for t.notes.iter().cloned() }
       </dl>
       if !t.members.is_empty() {
         <ul class="voc-members">

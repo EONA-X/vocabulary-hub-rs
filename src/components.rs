@@ -1,9 +1,15 @@
-//! A small, local set of Yew components used to render a vocabulary page —
-//! no external design-system dependency. [`crate::html`] composes these;
-//! [`crate::config::HubConfig::stylesheets`] is what styles them, so the
-//! CSS-class contract here (`section-head`, `badge badge--<kind>`,
-//! `annotation__label`/`annotation__text`, `icons-footer`, …) is load-bearing
-//! — `tests/site.rs` holds it fixed.
+//! What [`crate::site::write_site`] renders a vocabulary page's markup with.
+//!
+//! A [`crate::config::HubConfig`] stays pure data: it does not hold a
+//! `Components`. The caller (`main.rs`, or any other entry point) owns a
+//! concrete `Components` value and passes it in explicitly, so a deployment
+//! can plug in its own markup — a different design system, a different
+//! HTML structure, a different rendering framework entirely — without
+//! forking this crate. [`crate::default_components::DefaultComponents`] is a
+//! ready-to-use default.
+//!
+//! [`LiteralValue`], [`TermKind`], [`BadgeVariant`] and [`NavLink`] are the
+//! plain data the trait's methods take; they carry no markup of their own.
 
 use yew::prelude::*;
 
@@ -22,7 +28,7 @@ impl LiteralValue {
   }
 }
 
-/// The RDF/OWL/SKOS role a term's `rdf:type` plays, driving [`OntoBadge`]'s styling.
+/// The RDF/OWL/SKOS role a term's `rdf:type` plays, driving an `onto_badge`'s styling.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TermKind {
   Ontology,
@@ -36,7 +42,7 @@ pub enum TermKind {
 }
 
 impl TermKind {
-  fn modifier(self) -> &'static str {
+  pub(crate) fn modifier(self) -> &'static str {
     match self {
       TermKind::Ontology => "ontology",
       TermKind::Class => "class",
@@ -50,74 +56,17 @@ impl TermKind {
   }
 }
 
-/// What an [`OntoBadge`] is coloured by.
+/// What an `onto_badge` is coloured by.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum BadgeVariant {
   Kind(TermKind),
 }
 
 impl BadgeVariant {
-  fn modifier(self) -> &'static str {
+  pub(crate) fn modifier(self) -> &'static str {
     match self {
       BadgeVariant::Kind(kind) => kind.modifier(),
     }
-  }
-}
-
-#[derive(Properties, PartialEq)]
-pub struct OntoBadgeProps {
-  pub label: AttrValue,
-  pub variant: BadgeVariant,
-}
-
-/// A small pill labelling a term's `rdf:type`, e.g. `owl:Class`.
-#[function_component]
-pub fn OntoBadge(props: &OntoBadgeProps) -> Html {
-  let class = format!("badge badge--{}", props.variant.modifier());
-  html! { <span {class}>{ props.label.to_string() }</span> }
-}
-
-#[derive(Properties, PartialEq)]
-pub struct SectionHeadProps {
-  pub number: AttrValue,
-  pub kicker: AttrValue,
-  pub title: AttrValue,
-}
-
-/// A numbered section heading, e.g. `01 · Ontology · Example Ontology`.
-#[function_component]
-pub fn SectionHead(props: &SectionHeadProps) -> Html {
-  html! {
-    <div class="section-head">
-      <span class="section-head__number">{ props.number.to_string() }</span>
-      <span class="section-head__kicker">{ props.kicker.to_string() }</span>
-      <h2 class="section-head__title">{ props.title.to_string() }</h2>
-    </div>
-  }
-}
-
-#[derive(Properties, PartialEq)]
-pub struct OntoAnnotationProps {
-  pub label: AttrValue,
-  pub values: Vec<LiteralValue>,
-}
-
-/// A description-list entry: one `<dt>` label and one `<dd>` per value, each
-/// value's language tag (if any) shown alongside its text.
-#[function_component]
-pub fn OntoAnnotation(props: &OntoAnnotationProps) -> Html {
-  html! {
-    <>
-      <dt class="annotation__label">{ props.label.to_string() }</dt>
-      { for props.values.iter().map(|v| html! {
-          <dd class="annotation__value">
-            <span class="annotation__text">{ v.value.clone() }</span>
-            if let Some(lang) = &v.lang {
-              <span class="annotation__lang">{ lang.clone() }</span>
-            }
-          </dd>
-      }) }
-    </>
   }
 }
 
@@ -137,19 +86,21 @@ impl NavLink {
   }
 }
 
-#[derive(Properties, PartialEq)]
-pub struct SimpleFooterProps {
-  pub text: AttrValue,
-  pub link: NavLink,
-}
+/// The markup units a vocabulary page is built from. [`crate::html::render`]
+/// calls each method once per occurrence, up front, and embeds the
+/// resulting [`Html`] in the page it renders — a deployment implementing its
+/// own `Components` controls every pixel without forking this crate.
+pub trait Components {
+  /// A numbered section heading, e.g. `01 · Ontology · Example Ontology`.
+  fn section_head(&self, number: AttrValue, kicker: AttrValue, title: AttrValue) -> Html;
 
-/// The page's closing footer: a line of text and one link home.
-#[function_component]
-pub fn SimpleFooter(props: &SimpleFooterProps) -> Html {
-  html! {
-    <footer class="icons-footer">
-      <p class="icons-footer__text">{ props.text.to_string() }</p>
-      <a class="icons-footer__link" href={props.link.href.clone()}>{ props.link.label.to_string() }</a>
-    </footer>
-  }
+  /// A small pill labelling a term's `rdf:type`, e.g. `owl:Class`.
+  fn onto_badge(&self, label: AttrValue, variant: BadgeVariant) -> Html;
+
+  /// A description-list entry: one `<dt>` label and one `<dd>` per value, each
+  /// value's language tag (if any) shown alongside its text.
+  fn onto_annotation(&self, label: AttrValue, values: Vec<LiteralValue>) -> Html;
+
+  /// The page's closing footer: a line of text and one link home.
+  fn simple_footer(&self, text: AttrValue, link: NavLink) -> Html;
 }

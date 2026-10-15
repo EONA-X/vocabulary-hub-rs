@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use rdf_sitegen::{Prefixes, to_jsonld, to_turtle, write_if_changed};
 
+use crate::components::Components;
 use crate::config::HubConfig;
 use crate::model::Vocabulary;
 use crate::{htaccess, html};
@@ -19,7 +20,7 @@ use crate::{htaccess, html};
 /// - `{asset-type}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
 ///   out of the site root so a host serving other things too can share its
 ///   root `.htaccess`.
-pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig) -> std::io::Result<Vec<PathBuf>> {
+pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig, components: &dyn Components) -> std::io::Result<Vec<PathBuf>> {
   // Exists even when nothing is published — the normal case until upstream
   // mints a vocabulary under the site base.
   std::fs::create_dir_all(out)?;
@@ -42,7 +43,7 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig) -
     for (ext, bytes) in [
       ("ttl", to_turtle(&v.triples, &prefixes)),
       ("jsonld", to_jsonld(&v.triples, &prefixes)),
-      ("html", html::render(v, config).into_bytes()),
+      ("html", html::render(v, config, components).into_bytes()),
     ] {
       // `with_extension` would eat `v0.0.1`'s last dot-segment.
       let rel = PathBuf::from(format!("{}.{ext}", base.display()));

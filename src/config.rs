@@ -1,8 +1,11 @@
 //! What a deployment configures: branding, hosting bases, and the catalog's
 //! own identity. Pure data — it does not hold a
-//! [`Discoverer`](crate::discoverer::Discoverer); the caller owns one
-//! alongside a `HubConfig` and threads both through [`crate::site::write_site`]
-//! and [`crate::catalog::write_catalog`].
+//! [`Discoverer`](crate::discoverer::Discoverer) or a
+//! [`Components`](crate::components::Components). The caller owns a
+//! `Discoverer` alongside a `HubConfig` and threads both through
+//! [`crate::site::write_site`] and [`crate::catalog::write_catalog`]; it owns
+//! a `Components` the same way, threaded only through
+//! [`crate::site::write_site`].
 
 use crate::theme::default as theme;
 
