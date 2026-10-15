@@ -113,3 +113,20 @@ fn the_deploy_script_refuses_a_tilde_target_that_lftp_expands_to_the_account_roo
   }
   fs::remove_dir_all(&bin).ok();
 }
+
+#[test]
+fn check_conneg_reports_a_fail_line_for_every_check_when_the_host_is_unreachable() {
+  use std::process::Command;
+
+  // Port 1 refuses the connection: curl fails at the transport level.
+  let output = Command::new("sh")
+    .args(["scripts/check-conneg.sh", "http://127.0.0.1:1/", "ontology/x", "v1", "https://x/"])
+    .output()
+    .unwrap();
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert_eq!(output.status.code(), Some(1), "stdout: {stdout}");
+  assert!(
+    stdout.lines().filter(|l| l.starts_with("FAIL ")).count() >= 5,
+    "every check must report: {stdout}"
+  );
+}

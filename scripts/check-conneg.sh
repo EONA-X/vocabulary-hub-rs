@@ -20,7 +20,9 @@ set -eu
 base=${1%/}; slug=$2; version=$3
 publication=${4:?publication-base is required: the production host minting the IRIs, e.g. https://eona-x.eu/}
 publication=${publication%/}
-# CURL_OPTS=-k for a self-signed test certificate.
+# CURL_OPTS=-k for a self-signed test certificate. A transport error (refused,
+# DNS, TLS) must not end the script under set -e: the substitutions below end
+# in `|| true`, curl's -w output still reports 000, and the check reports FAIL.
 curl() { command curl ${CURL_OPTS:-} "$@"; }
 url="$base/$slug/$version"
 host=${base#*://}; host=${host%%/*}
@@ -32,7 +34,7 @@ ok() { echo "ok   $*"; }
 ko() { echo "FAIL $*"; fail=1; }
 
 expect() { # <accept> <expected content-type> <expected body: turtle|jsonld|html>
-  got=$(curl -s -o "$body" -w '%{http_code} %{content_type}' -H "Accept: $1" "$url")
+  got=$(curl -s -o "$body" -w '%{http_code} %{content_type}' -H "Accept: $1" "$url" || true)
   case "$got" in
     "200 $2"*) ;;
     *) ko "Accept: $1 -> $got (want 200 $2)"; return ;;
@@ -65,7 +67,7 @@ expect '*/*' 'text/html' html
 # URL instead of carrying its own copy).
 kind=${slug%%/*}
 for css in tokens components ontology; do
-  got=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$base/$kind/assets/$css.css")
+  got=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$base/$kind/assets/$css.css" || true)
   case "$got" in
     "200 text/css"*) ok "$kind/assets/$css.css -> $got" ;;
     *) ko "$kind/assets/$css.css -> $got (want 200 text/css)" ;;
@@ -79,7 +81,7 @@ case "$vary" in
 esac
 
 redirect() { # <path> <status> <location suffix pattern>
-  got=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$base$1")
+  got=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$base$1" || true)
   case "$got" in
     *:443/*) ko "$1 -> $got (explicit :443 in the redirect)" ;;
     "$2 "*"://$host"$3) ok "$1 -> $got" ;;
