@@ -583,3 +583,36 @@ fn blank_nodes_authored_with_the_same_label_in_two_metadata_files_stay_two_nodes
     assert_eq!(names, 1, "{creator} carries exactly one name");
   }
 }
+
+#[test]
+fn a_site_base_without_a_trailing_slash_still_yields_well_formed_published_iris() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  let mut config = config();
+  config.site_base = "https://hub.example".to_string();
+  write_catalog(src.path(), out.path(), BUILT_AT, &config, &DefaultDiscoverer).unwrap();
+
+  let catalog = fs::read_to_string(out.path().join("catalog.ttl")).unwrap();
+  assert!(
+    catalog.contains("foaf:page <https://hub.example/"),
+    "published pages live under the host: {catalog}"
+  );
+  assert!(
+    !catalog.contains("hub.exampleontology") && !catalog.contains("hub.examplecodelist"),
+    "no IRI glues the kind onto the host: {catalog}"
+  );
+}
+
+#[test]
+fn a_catalog_iri_with_a_trailing_slash_does_not_mint_double_slash_iris() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  let mut config = config();
+  config.catalog_iri = format!("{CATALOG_IRI}/");
+  write_catalog(src.path(), out.path(), BUILT_AT, &config, &DefaultDiscoverer).unwrap();
+
+  let catalog = fs::read_to_string(out.path().join("catalog.ttl")).unwrap();
+  assert!(!catalog.contains("catalog//"), "no doubled slash in minted IRIs: {catalog}");
+}

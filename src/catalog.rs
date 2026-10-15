@@ -124,6 +124,11 @@ fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
 /// `<slug>/<version>` directories the hub itself publishes (and at which
 /// IRI). Returns the written paths relative to `out`.
 pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &HubConfig, discoverer: &dyn Discoverer) -> Result<Vec<PathBuf>, String> {
+  // Catalog IRIs are joined with `/`: a trailing slash would mint `//` IRIs.
+  let config = &HubConfig {
+    catalog_iri: config.catalog_iri.trim_end_matches('/').to_string(),
+    ..config.clone()
+  };
   // The IRI each published version is served at, and its graph as the site
   // parsed it: the catalog reuses that graph so both carry the same term IRIs.
   let published: HashMap<String, Published> = discoverer

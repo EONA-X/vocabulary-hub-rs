@@ -29,6 +29,8 @@ pub struct DefaultDiscoverer;
 
 impl Discoverer for DefaultDiscoverer {
   fn discover(&self, dir: &Path, default_base: &str) -> Result<Discovery, String> {
+    // Bases are joined to `<kind>/...` by plain formatting: make sure exactly one `/` separates them.
+    let default_base = &format!("{}/", default_base.trim_end_matches('/'));
     let mut discovery = Discovery::default();
     for dir_name in self.version_dirs(dir)? {
       let version_dir = dir.join(&dir_name);
