@@ -75,6 +75,7 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   written.sort();
 
   let expected: Vec<PathBuf> = [
+    "example.test/vocabulary/assets/.htaccess",
     "example.test/vocabulary/assets/components.css",
     "example.test/vocabulary/assets/ontology.css",
     "example.test/vocabulary/assets/tokens.css",
@@ -238,11 +239,29 @@ fn the_htaccess_compresses_every_representation_it_serves() {
 
   write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
 
+  // No .css lives under a slug directory any more (the stylesheets moved to
+  // the shared assets/ one level up), so this slug's own .htaccess no longer
+  // needs to carry text/css.
   let htaccess = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/.htaccess")).unwrap();
   assert!(
-    htaccess.contains("AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json text/css"),
+    htaccess.contains("AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json"),
     "{htaccess}"
   );
+  assert!(!htaccess.contains("text/css"), "{htaccess}");
+}
+
+#[test]
+fn the_shared_assets_htaccess_compresses_the_stylesheets() {
+  // Moving the stylesheets out of the slug directory means they no longer
+  // cascade from that slug's own .htaccess (AllowOverride only looks down a
+  // tree, never sideways or up): the shared assets/ needs its own coverage.
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
+
+  let htaccess = fs::read_to_string(out.path().join("example.test/vocabulary/assets/.htaccess")).unwrap();
+  assert!(htaccess.contains("AddOutputFilterByType DEFLATE text/css"), "{htaccess}");
 }
 
 #[test]
