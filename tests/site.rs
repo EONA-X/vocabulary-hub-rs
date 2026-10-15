@@ -277,14 +277,14 @@ fn html_page(out: &Path) -> String {
 }
 
 #[test]
-fn the_html_page_is_styled_by_the_configured_stylesheets_shipped_next_to_it() {
+fn the_html_page_is_styled_by_the_configured_stylesheets_shared_by_its_asset_type() {
   let out = tempfile::tempdir().unwrap();
   let html = html_page(out.path());
   let cfg = config();
 
   for (file, content) in cfg.stylesheets {
     assert!(
-      html.contains(&format!(r#"<link rel="stylesheet" href="assets/{file}">"#)),
+      html.contains(&format!(r#"<link rel="stylesheet" href="../assets/{file}">"#)),
       "{file} not linked:\n{html}"
     );
     assert_eq!(
