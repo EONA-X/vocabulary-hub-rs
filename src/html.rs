@@ -152,6 +152,7 @@ impl PageData {
   fn build(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> PageData {
     let idx = Indices::build(&Ontology { triples: v.triples.clone() });
     let ns = v.namespace.as_str();
+    let term_ns = term_namespace(ns);
     let plain = |s: &str| vec![LiteralValue::new(s.to_string(), None, None)];
 
     let mut overview = vec![
@@ -168,11 +169,11 @@ impl PageData {
     let title = text(&idx, ns, DCT_TITLE).or_else(|| label(&idx, ns)).unwrap_or(&v.slug).to_string();
     let asset_type = v.kind.clone();
 
-    let terms: Vec<TermData> = subjects_in_namespace(&v.triples, ns)
+    let terms: Vec<TermData> = subjects_in_namespace(&v.triples, &term_ns)
       .into_iter()
-      .filter(|t| t != ns)
+      .filter(|t| t.len() > term_ns.len())
       .map(|t| {
-        let local = t[ns.len()..].to_string();
+        let local = t[term_ns.len()..].to_string();
         TermData {
           label: label(&idx, &t).unwrap_or(&local).to_string(),
           curie: curie(v, &t),
@@ -332,11 +333,18 @@ fn label<'a>(idx: &'a Indices, subject: &str) -> Option<&'a str> {
   text(idx, subject, RDFS_LABEL).or_else(|| text(idx, subject, &format!("{SKOS}prefLabel")))
 }
 
+/// The IRI prefix its terms are minted under: the root IRI itself when it ends
+/// in `#` or `/`, else the root with `#` appended (`<…/onto>` mints `…/onto#Term`),
+/// so a term's local name never carries the separator or a sibling's path.
+fn term_namespace(root: &str) -> String {
+  if root.ends_with(['#', '/']) { root.to_string() } else { format!("{root}#") }
+}
+
 /// In-page anchor for a term of this vocabulary, the IRI itself for http(s)
 /// IRIs, and none for any other scheme (`javascript:`, `data:`, ...): vocabulary
 /// content must not be able to plant a script-running link.
 fn href(v: &Vocabulary, iri: &str) -> Option<String> {
-  match iri.strip_prefix(v.namespace.as_str()) {
+  match iri.strip_prefix(term_namespace(&v.namespace).as_str()) {
     Some(local) if !local.is_empty() => Some(format!("#{local}")),
     _ => {
       let scheme = iri.split(':').next().unwrap_or_default();
@@ -357,4 +365,38 @@ fn curie(v: &Vocabulary, iri: &str) -> String {
 /// For the hand-written `<head>` only; the body is escaped by Yew.
 fn esc(s: &str) -> String {
   s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+  use std::fs;
+
+  use super::*;
+  use crate::default_components::DefaultComponents;
+  use crate::default_discovery::DefaultDiscoverer;
+  use crate::discoverer::Discoverer;
+
+  #[test]
+  fn an_ontology_iri_without_a_trailing_hash_anchors_its_hash_terms_by_local_name_and_skips_sibling_prefixes() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n@prefix : <http://example.org/onto#> .\n\
+       <http://example.org/onto> a owl:Ontology .\n:Thing a owl:Class .\n:Other a owl:Class .\n\
+       :Thing :related :Other .\n<http://example.org/ontology-other/X> a owl:Class .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+    let v = &discovery.published[0];
+    assert_eq!(v.namespace, "http://example.org/onto");
+
+    let page = render(v, &HubConfig::default(), &DefaultComponents);
+
+    assert!(page.contains("id=\"Thing\""), "{page}");
+    assert!(page.contains("href=\"#Thing\""), "{page}");
+    assert!(!page.contains("id=\"#Thing\"") && !page.contains("##Thing"), "{page}");
+    assert!(!page.contains("logy-other"), "{page}");
+  }
 }
