@@ -387,3 +387,11 @@ fn one_asset_type_and_slug_on_both_hosts_is_refused() {
 
   assert!(err.to_string().contains("vocabulary/example-profile"), "{err}");
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn write_site_works_when_called_from_inside_a_tokio_runtime() {
+  let config = HubConfig::default();
+  let found = DefaultDiscoverer.discover(Path::new("tests/fixtures/vocabularies"), &config.site_base).unwrap();
+  let out = tempfile::tempdir().unwrap();
+  write_site(out.path(), &found.published, &config, &DefaultComponents).unwrap();
+}

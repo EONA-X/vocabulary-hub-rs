@@ -14,7 +14,12 @@
 //! flat files and nothing else.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::pin;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::task::{Context, Poll, Wake, Waker};
+use std::thread::{self, Thread};
 
 use rdf_sitegen::{Indices, Ontology, RDF_TYPE, RDFS_COMMENT, RDFS_LABEL, UNTAGGED, subjects_in_namespace};
 use yew::{AttrValue, Html, Properties, function_component, html};
@@ -60,10 +65,8 @@ body{margin:0}
 
 pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> String {
   let page = Rc::new(PageData::build(v, config, components));
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .build()
-    .expect("a single-thread runtime for Yew's server renderer");
-  let body = runtime.block_on(
+  // Not `tokio::runtime::block_on`: that panics when the caller is already inside a tokio runtime.
+  let body = block_on(
     yew::LocalServerRenderer::<VocabularyPage>::with_props(PageProps { page: page.clone() })
       .hydratable(false)
       .render(),
@@ -95,6 +98,25 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
     version = esc(&page.version),
     canonical = esc(page.namespace.trim_end_matches('#')),
   )
+}
+
+/// Drives a future to completion on the current thread without owning a tokio runtime.
+fn block_on<F: Future>(future: F) -> F::Output {
+  struct ThreadWaker(Thread);
+  impl Wake for ThreadWaker {
+    fn wake(self: Arc<Self>) {
+      self.0.unpark();
+    }
+  }
+  let waker = Waker::from(Arc::new(ThreadWaker(thread::current())));
+  let mut cx = Context::from_waker(&waker);
+  let mut future = pin!(future);
+  loop {
+    match future.as_mut().poll(&mut cx) {
+      Poll::Ready(out) => return out,
+      Poll::Pending => thread::park(),
+    }
+  }
 }
 
 /// Everything the page shows, extracted from the graph and the config up
