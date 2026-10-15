@@ -444,7 +444,8 @@ impl Graph {
 }
 
 /// The ontologies a crosswalk's `void:Linkset` reaches (`rdfs:seeAlso`), in
-/// authored order, as slugs.
+/// authored order, as slugs. A target belongs to the ontology with the longest
+/// matching namespace, so one namespace that prefixes another doesn't claim it.
 fn sides(graph: &[Triple], namespaces: &[(&str, &str)]) -> Vec<String> {
   let linksets: Vec<&NamedOrBlankNode> = graph
     .iter()
@@ -454,7 +455,10 @@ fn sides(graph: &[Triple], namespaces: &[(&str, &str)]) -> Vec<String> {
   let mut sides: Vec<String> = Vec::new();
   for t in graph.iter().filter(|t| linksets.contains(&&t.subject) && t.predicate.as_str() == RDFS_SEE_ALSO) {
     let Term::NamedNode(target) = &t.object else { continue };
-    if let Some((_, slug)) = namespaces.iter().find(|(ns, _)| target.as_str().starts_with(ns))
+    if let Some((_, slug)) = namespaces
+      .iter()
+      .filter(|(ns, _)| target.as_str().starts_with(ns))
+      .max_by_key(|(ns, _)| ns.len())
       && !sides.iter().any(|s| s == slug)
     {
       sides.push(slug.to_string());

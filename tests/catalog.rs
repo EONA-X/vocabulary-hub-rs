@@ -218,6 +218,34 @@ fn alignments_json_lists_the_crosswalks_with_their_sides_in_authored_order() {
 }
 
 #[test]
+fn a_crosswalk_side_goes_to_the_ontology_whose_namespace_is_the_longest_match_not_a_mere_string_prefix() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for (slug, iri) in [("a", "https://ex.org/onto"), ("b", "https://ex.org/onto-ext")] {
+    write(
+      src.path(),
+      &format!("{slug}/v1.0.0/metadata.ttl"),
+      &metadata(slug, "1.0.0", "c_89b4bdb7", "CURRENT", ""),
+    );
+    write(
+      src.path(),
+      &format!("{slug}/v1.0.0/ontology.ttl"),
+      &format!("@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<{iri}> a owl:Ontology .\n"),
+    );
+  }
+  write(src.path(), "x/v1.0.0/metadata.ttl", &metadata("X", "1.0.0", "c_bba2bb35", "CURRENT", ""));
+  write(
+    src.path(),
+    "x/v1.0.0/alignment.ttl",
+    "@prefix void: <http://rdfs.org/ns/void#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n<https://ex.org/x#ls> a void:Linkset ; rdfs:seeAlso <https://ex.org/onto-ext> .\n",
+  );
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let manifest = json(out.path(), "alignments.json");
+
+  assert_eq!(manifest["alignments"][0]["sides"], json!(["b"]));
+}
+
+#[test]
 fn every_version_is_published_in_four_formats_that_all_carry_the_source_graph() {
   let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
   build(src.path(), out.path());
