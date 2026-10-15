@@ -501,6 +501,23 @@ fn canonical(t: &oxrdf::Triple) -> String {
 }
 
 #[test]
+fn a_version_dir_with_metadata_but_no_graph_file_is_skipped_like_discovery_does() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  fixture(src.path());
+  // Work in progress: metadata only, no ontology.ttl or alignment.ttl yet.
+  write(src.path(), "wip/v0.1.0/metadata.ttl", &metadata("Wip", "0.1.0", "c_89b4bdb7", "DRAFT", ""));
+
+  let result = write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer);
+
+  assert!(result.is_ok(), "expected the catalog to be written, got {result:?}");
+  let manifest = json(out.path(), "ontologies.json");
+  let slugs: Vec<&str> = manifest["ontologies"].as_array().unwrap().iter().map(|o| o["slug"].as_str().unwrap()).collect();
+  assert!(!slugs.contains(&"wip"), "an unpublished version is not listed: {slugs:?}");
+  assert!(slugs.contains(&"vocab-alpha"));
+  assert!(!out.path().join("wip").exists());
+}
+
+#[test]
 fn a_missing_vocabularies_dir_is_an_error_that_leaves_the_existing_catalog_untouched() {
   let tmp = tempfile::tempdir().unwrap();
   let docs = tmp.path().join("docs");

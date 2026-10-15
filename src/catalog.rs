@@ -140,7 +140,8 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   let mut assets: BTreeMap<String, Vec<AssetVersion>> = BTreeMap::new();
   for dir_name in discoverer.version_dirs(vocabularies)? {
     let dir = vocabularies.join(&dir_name);
-    if !dir.join("metadata.ttl").is_file() {
+    // Like discovery: a version without a graph file is not published yet.
+    if !dir.join("metadata.ttl").is_file() || discoverer.graph_file(&dir).is_err() {
       continue;
     }
     let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
