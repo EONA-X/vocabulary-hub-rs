@@ -145,7 +145,7 @@ struct TermData {
   curie: String,
   type_badges: Vec<Html>,
   notes: Vec<Html>,
-  members: Vec<(String, String)>,
+  members: Vec<(Option<String>, String)>,
 }
 
 impl PageData {
@@ -275,7 +275,10 @@ fn term(t: &TermData) -> Html {
       </dl>
       if !t.members.is_empty() {
         <ul class="voc-members">
-          { for t.members.iter().map(|(href, curie)| html! { <li><a href={href.clone()}><code>{ curie }</code></a></li> }) }
+          { for t.members.iter().map(|(href, curie)| match href {
+            Some(href) => html! { <li><a href={href.clone()}><code>{ curie }</code></a></li> },
+            None => html! { <li><code>{ curie }</code></li> },
+          }) }
         </ul>
       }
     </article>
@@ -329,11 +332,16 @@ fn label<'a>(idx: &'a Indices, subject: &str) -> Option<&'a str> {
   text(idx, subject, RDFS_LABEL).or_else(|| text(idx, subject, &format!("{SKOS}prefLabel")))
 }
 
-/// In-page anchor for a term of this vocabulary, the IRI itself otherwise.
-fn href(v: &Vocabulary, iri: &str) -> String {
+/// In-page anchor for a term of this vocabulary, the IRI itself for http(s)
+/// IRIs, and none for any other scheme (`javascript:`, `data:`, ...): vocabulary
+/// content must not be able to plant a script-running link.
+fn href(v: &Vocabulary, iri: &str) -> Option<String> {
   match iri.strip_prefix(v.namespace.as_str()) {
-    Some(local) if !local.is_empty() => format!("#{local}"),
-    _ => iri.to_string(),
+    Some(local) if !local.is_empty() => Some(format!("#{local}")),
+    _ => {
+      let scheme = iri.split(':').next().unwrap_or_default();
+      (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then(|| iri.to_string())
+    }
   }
 }
 

@@ -395,3 +395,28 @@ async fn write_site_works_when_called_from_inside_a_tokio_runtime() {
   let out = tempfile::tempdir().unwrap();
   write_site(out.path(), &found.published, &config, &DefaultComponents).unwrap();
 }
+
+#[test]
+fn a_member_iri_with_a_script_scheme_is_shown_as_text_and_never_linked() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  let ttl = format!(
+    r#"@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+<{NS}> a owl:Ontology .
+<{NS}A> a owl:Class ; skos:member <javascript:alert(3)>, <data:text/html,hi>, <http://www.w3.org/ns/odrl/2/eq> .
+"#
+  );
+  fs::create_dir_all(src.path().join("example-profile/v0.0.1")).unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/ontology.ttl"), ttl).unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/metadata.ttl"), METADATA).unwrap();
+  let vocabularies = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+
+  write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
+
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(!html.contains(r#"href="javascript:"#), "{html}");
+  assert!(!html.contains(r#"href="data:"#), "{html}");
+  assert!(html.contains("javascript:alert(3)"), "{html}");
+  assert!(html.contains(r#"href="http://www.w3.org/ns/odrl/2/eq""#), "{html}");
+}
