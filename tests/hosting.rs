@@ -84,3 +84,32 @@ fn every_hosting_path_the_scripts_reference_exists() {
   }
   assert!(missing.is_empty(), "scripts reference hosting files that do not exist: {missing:?}");
 }
+
+#[test]
+fn the_deploy_script_refuses_a_tilde_target_that_lftp_expands_to_the_account_root() {
+  use std::os::unix::fs::PermissionsExt;
+  use std::process::Command;
+
+  // A stub lftp on PATH: if the guard lets the value through, it runs.
+  let bin = std::env::temp_dir().join(format!("vocab-hub-stub-lftp-{}", std::process::id()));
+  fs::create_dir_all(&bin).unwrap();
+  let stub = bin.join("lftp");
+  fs::write(&stub, "#!/bin/sh\ncat >/dev/null\nexit 0\n").unwrap();
+  fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+  let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+
+  for dir in ["~", "~/", "~/voc", "~user"] {
+    let status = Command::new("sh")
+      .args(["scripts/deploy-sftp.sh", "public", "mirror"])
+      .env("PATH", &path)
+      .env("OVH_SFTP_HOST", "h")
+      .env("OVH_SFTP_USER", "u")
+      .env("OVH_SFTP_PASSWORD", "p")
+      .env("OVH_SSH_KNOWN_HOSTS", "k")
+      .env("OVH_SFTP_DIR", dir)
+      .status()
+      .unwrap();
+    assert_eq!(status.code(), Some(2), "OVH_SFTP_DIR='{dir}' must be refused");
+  }
+  fs::remove_dir_all(&bin).ok();
+}

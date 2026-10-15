@@ -40,7 +40,7 @@ if [ "$dir" = . ] && [ "$mode" != mirror ]; then
   : # the account root: add-only, or mirroring only what the Hub UI owns
 else
   case "/$dir/" in
-    //|/./|*/../*|*/./*|//*) echo "OVH_SFTP_DIR='$dir' must be a relative path below the account root, without . or .. segments (the root itself only with additive)" >&2; exit 2 ;;
+    //|/./|*/../*|*/./*|//*|/~*) echo "OVH_SFTP_DIR='$dir' must be a relative path below the account root, without . or .. segments or a leading ~ (lftp expands it to the root; the root itself only with additive)" >&2; exit 2 ;;
   esac
 fi
 
