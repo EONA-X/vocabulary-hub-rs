@@ -46,7 +46,8 @@ impl Discoverer for DefaultDiscoverer {
         });
         continue;
       };
-      let parsed = parse_turtle(&version_dir.join(&graph_file), &format!("{default_base}{dir_name}/"));
+      let kind = kind(&version_dir, default_base).unwrap_or("ontology");
+      let parsed = parse_turtle(&version_dir.join(&graph_file), &format!("{default_base}{kind}/{dir_name}"));
       let (triples, prefixes) = match parsed {
         Ok(parsed) => parsed,
         Err(reason) => {
@@ -61,7 +62,6 @@ impl Discoverer for DefaultDiscoverer {
         });
         continue;
       };
-      let kind = kind(&version_dir, default_base).unwrap_or("ontology");
       discovery.published.push(Vocabulary {
         base: default_base.to_string(),
         kind: kind.to_string(),
@@ -156,4 +156,27 @@ fn root(triples: &[Triple]) -> Option<String> {
   let all = iris.clone();
   iris.retain(|iri| !all.iter().any(|other| other != iri && iri.starts_with(other)));
   (iris.len() == 1).then(|| iris[0].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn relative_iris_resolve_against_the_published_document_iri() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("rel/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<#> a owl:Ontology .\n<#Thing> a owl:Class .\n",
+    )
+    .unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    let v = &discovery.published[0];
+    assert_eq!(v.namespace, "https://hub.test/ontology/rel/v1#");
+    assert!(v.triples.iter().any(|t| t.subject.to_string() == "<https://hub.test/ontology/rel/v1#Thing>"));
+  }
 }
