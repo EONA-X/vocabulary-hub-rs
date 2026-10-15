@@ -20,7 +20,8 @@ use crate::{htaccess, html};
 /// - `{asset-type}/{slug}/.htaccess` — content negotiation for this slug only. It is kept
 ///   out of the site root so a host serving other things too can share its
 ///   root `.htaccess`.
-/// - `{asset-type}/assets/{file}` — the configured stylesheets, written once per
+/// - `{asset-type}/assets/{file}` and `{asset-type}/assets/.htaccess` — the configured
+///   stylesheets plus their own compression rule, written once per
 ///   `{host}/{asset-type}` pair rather than once per slug: a real deployment
 ///   publishes many slugs of the same asset type, and they would otherwise all
 ///   ship byte-identical copies of the same CSS under a different URL each.
@@ -75,6 +76,9 @@ pub fn write_site(out: &Path, vocabularies: &[Vocabulary], config: &HubConfig, c
         write_if_changed(&out.join(&rel), css.as_bytes())?;
         written.push(rel);
       }
+      let rel = assets_dir.join(".htaccess");
+      write_if_changed(&out.join(&rel), htaccess::render_assets().as_bytes())?;
+      written.push(rel);
     }
     let dir = PathBuf::from(*host).join(slug);
     let rel = dir.join(".htaccess");
