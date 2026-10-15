@@ -475,6 +475,29 @@ fn versions_are_ordered_numerically_so_v1_10_0_is_newer_than_v1_9_0() {
 }
 
 #[test]
+fn a_pre_release_is_older_than_its_release_so_the_release_is_the_current_version() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for version in ["1.0.0", "1.0.0-rc.1"] {
+    write(
+      src.path(),
+      &format!("a/v{version}/metadata.ttl"),
+      &metadata("A", version, "c_89b4bdb7", "CURRENT", ""),
+    );
+    write(
+      src.path(),
+      &format!("a/v{version}/ontology.ttl"),
+      "<https://ex.org/a#> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+    );
+  }
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  assert_eq!(json(out.path(), "ontologies.json")["ontologies"][0]["version"], "1.0.0");
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = node(&nodes, &format!("{CATALOG_IRI}/a"));
+  assert_eq!(ids(&asset[&format!("{DCAT}hasCurrentVersion")]), [format!("{CATALOG_IRI}/a/v1.0.0")]);
+}
+
+#[test]
 fn the_assets_are_copied_and_nothing_else_is_written() {
   let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
   build(src.path(), out.path());

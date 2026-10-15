@@ -137,11 +137,18 @@ impl AssetVersion {
   }
 }
 
+/// `v1.0.0-rc.1` as its dot-separated core segments and its pre-release suffix.
+fn split_version(v: &str) -> (Vec<String>, Option<&str>) {
+  let v = v.trim_start_matches('v');
+  let (core, pre) = v.split_once('-').map_or((v, None), |(core, pre)| (core, Some(pre)));
+  (core.split('.').map(str::to_string).collect(), pre)
+}
+
 /// Orders two `v<version>` directory names by version: dot-separated numeric
-/// segments compare as integers, anything else falls back to string order.
+/// segments compare as integers, anything else falls back to string order. A
+/// pre-release suffix (`-rc.1`) ranks below its release.
 fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
-  let segments = |v: &str| -> Vec<String> { v.trim_start_matches('v').split('.').map(str::to_string).collect() };
-  let (a_segments, b_segments) = (segments(a), segments(b));
+  let ((a_segments, a_pre), (b_segments, b_pre)) = (split_version(a), split_version(b));
   for (x, y) in a_segments.iter().zip(&b_segments) {
     let ordering = match (x.parse::<u64>(), y.parse::<u64>()) {
       (Ok(x), Ok(y)) => x.cmp(&y),
@@ -151,7 +158,15 @@ fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
       return ordering;
     }
   }
-  a_segments.len().cmp(&b_segments.len()).then_with(|| a.cmp(b))
+  a_segments
+    .len()
+    .cmp(&b_segments.len())
+    .then_with(|| match (a_pre, b_pre) {
+      (None, Some(_)) => std::cmp::Ordering::Greater,
+      (Some(_), None) => std::cmp::Ordering::Less,
+      (a_pre, b_pre) => a_pre.cmp(&b_pre),
+    })
+    .then_with(|| a.cmp(b))
 }
 
 /// Writes the catalog data for the vocabularies at `vocabularies` into `out`,
