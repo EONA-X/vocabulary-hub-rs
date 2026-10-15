@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use oxrdf::Triple;
 use vocabulary_hub_rs::config::HubConfig;
+use vocabulary_hub_rs::default_components::DefaultComponents;
 use vocabulary_hub_rs::default_discovery::DefaultDiscoverer;
 use vocabulary_hub_rs::discoverer::Discoverer;
 use vocabulary_hub_rs::model::Vocabulary;
@@ -70,7 +71,7 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
-  let mut written = write_site(out.path(), &published(src.path()), &config()).unwrap();
+  let mut written = write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
   written.sort();
 
   let expected: Vec<PathBuf> = [
@@ -96,7 +97,7 @@ fn the_turtle_is_the_whole_document_and_keeps_the_source_prefixes() {
   let out = tempfile::tempdir().unwrap();
   let vocabularies = published(src.path());
 
-  write_site(out.path(), &vocabularies, &config()).unwrap();
+  write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
 
   let ttl = fs::read(out.path().join("example.test/vocabulary/example-profile/v0.0.1.ttl")).unwrap();
   let reparsed = oxttl::TurtleParser::new().for_reader(ttl.as_slice()).collect::<Result<Vec<_>, _>>().unwrap();
@@ -110,7 +111,7 @@ fn the_json_ld_is_the_same_graph() {
   let out = tempfile::tempdir().unwrap();
   let vocabularies = published(src.path());
 
-  write_site(out.path(), &vocabularies, &config()).unwrap();
+  write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
 
   let jsonld = fs::read(out.path().join("example.test/vocabulary/example-profile/v0.0.1.jsonld")).unwrap();
   let reparsed: Vec<Triple> = oxjsonld::JsonLdParser::new()
@@ -125,7 +126,7 @@ fn the_html_gives_every_term_an_anchor_named_after_its_fragment() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
-  write_site(out.path(), &published(src.path()), &config()).unwrap();
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
 
   let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
   assert!(html.contains(r#"id="GenericClaim""#), "{html}");
@@ -142,7 +143,7 @@ fn the_html_links_its_machine_readable_twins_and_escapes_literals() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
-  write_site(out.path(), &published(src.path()), &config()).unwrap();
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
 
   let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
   assert!(html.contains("<title>Example ODRL Profile"), "{html}");
@@ -157,7 +158,7 @@ fn the_htaccess_negotiates_any_version_present_on_disk_and_points_the_bare_slug_
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
-  write_site(out.path(), &published(src.path()), &config()).unwrap();
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
 
   let htaccess = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/.htaccess")).unwrap();
   assert!(htaccess.contains("RewriteBase /vocabulary/example-profile/"), "{htaccess}");
@@ -181,7 +182,7 @@ fn the_htaccess_answers_only_under_its_published_path_even_behind_a_router() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
-  write_site(out.path(), &published(src.path()), &config()).unwrap();
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
 
   let htaccess = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/.htaccess")).unwrap();
   assert!(
@@ -195,7 +196,7 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
 
-  write_site(out.path(), &published(src.path()), &config()).unwrap();
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
 
   let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
   assert!(
@@ -209,7 +210,7 @@ fn a_build_that_publishes_nothing_still_produces_its_output_directory() {
   let out = tempfile::tempdir().unwrap();
   let site = out.path().join("public");
 
-  let written = write_site(&site, &[], &config()).unwrap();
+  let written = write_site(&site, &[], &config(), &DefaultComponents).unwrap();
 
   assert!(written.is_empty());
   assert!(site.is_dir());
@@ -217,7 +218,7 @@ fn a_build_that_publishes_nothing_still_produces_its_output_directory() {
 
 fn html_page(out: &Path) -> String {
   let src = tempfile::tempdir().unwrap();
-  write_site(out, &published(src.path()), &config()).unwrap();
+  write_site(out, &published(src.path()), &config(), &DefaultComponents).unwrap();
   fs::read_to_string(out.join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap()
 }
 
@@ -294,7 +295,7 @@ fn one_asset_type_and_slug_on_both_hosts_is_refused() {
   elsewhere.version = "v0.0.2".to_string();
   vocabularies.push(elsewhere);
 
-  let err = write_site(out.path(), &vocabularies, &config()).unwrap_err();
+  let err = write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap_err();
 
   assert!(err.to_string().contains("vocabulary/example-profile"), "{err}");
 }
