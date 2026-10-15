@@ -75,10 +75,10 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   written.sort();
 
   let expected: Vec<PathBuf> = [
+    "example.test/vocabulary/assets/components.css",
+    "example.test/vocabulary/assets/ontology.css",
+    "example.test/vocabulary/assets/tokens.css",
     "example.test/vocabulary/example-profile/.htaccess",
-    "example.test/vocabulary/example-profile/assets/components.css",
-    "example.test/vocabulary/example-profile/assets/ontology.css",
-    "example.test/vocabulary/example-profile/assets/tokens.css",
     "example.test/vocabulary/example-profile/v0.0.1.html",
     "example.test/vocabulary/example-profile/v0.0.1.jsonld",
     "example.test/vocabulary/example-profile/v0.0.1.ttl",
@@ -89,6 +89,42 @@ fn each_version_is_written_as_turtle_json_ld_and_html_next_to_its_slug_htaccess(
   for p in &expected {
     assert!(out.path().join(p).is_file(), "{} missing", p.display());
   }
+}
+
+#[test]
+fn two_slugs_of_the_same_asset_type_share_one_copy_of_each_stylesheet() {
+  // A real deployment ships ~18 slugs of one asset type; each must not carry
+  // its own private copy of the same bytes under a different URL.
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  for slug in ["example-profile", "other-profile"] {
+    fs::create_dir_all(src.path().join(slug).join("v0.0.1")).unwrap();
+    fs::write(src.path().join(slug).join("v0.0.1/ontology.ttl"), profile()).unwrap();
+    fs::write(src.path().join(slug).join("v0.0.1/metadata.ttl"), METADATA).unwrap();
+  }
+  let vocabularies = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+  let slugs: Vec<&str> = vocabularies.iter().map(|v| v.slug.as_str()).collect();
+  assert_eq!(vocabularies.len(), 2, "{slugs:?}");
+
+  let written = write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
+
+  let css_writes = written.iter().filter(|p| p.extension().is_some_and(|e| e == "css")).count();
+  assert_eq!(css_writes, config().stylesheets.len(), "expected one copy of each stylesheet, not one per slug: {written:?}");
+  for (file, content) in config().stylesheets {
+    assert_eq!(
+      fs::read_to_string(out.path().join("example.test/vocabulary/assets").join(file)).unwrap(),
+      content,
+      "{file}"
+    );
+  }
+  assert!(
+    !out.path().join("example.test/vocabulary/example-profile/assets").exists(),
+    "example-profile must not carry its own copy of the stylesheets"
+  );
+  assert!(
+    !out.path().join("example.test/vocabulary/other-profile/assets").exists(),
+    "other-profile must not carry its own copy of the stylesheets"
+  );
 }
 
 #[test]
