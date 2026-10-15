@@ -1,0 +1,43 @@
+name: Deploy demo to GitHub Pages
+
+# Builds examples/demo.rs against examples/vocabularies/ and publishes the
+# result to https://eona-x.github.io/vocabulary-hub-rs/ — see the module doc
+# on examples/demo.rs for what it builds and why.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the demo site
+        run: |
+          BUILT_AT="$(git log -1 --format=%cI)" cargo run --release --example demo -- site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/eona-x.github.io/vocabulary-hub-rs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

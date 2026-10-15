@@ -1,5 +1,10 @@
 # vocabulary-hub-rs
 
+**[Live demo](https://eona-x.github.io/vocabulary-hub-rs/)** — built by
+[`examples/demo.rs`](examples/demo.rs) from the sample vocabularies under
+[`examples/vocabularies/`](examples/vocabularies/), redeployed on every push
+to `main` by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+
 A small, host-agnostic Rust static-site generator for publishing RDF
 vocabularies (ontologies, SHACL/application-profile shapes, crosswalks,
 controlled vocabularies, code lists) as a content-negotiated site: every
