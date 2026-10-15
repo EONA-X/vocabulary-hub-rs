@@ -200,7 +200,7 @@ fn the_htaccess_compresses_every_representation_it_serves() {
 
   let htaccess = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/.htaccess")).unwrap();
   assert!(
-    htaccess.contains("AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json"),
+    htaccess.contains("AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json text/css"),
     "{htaccess}"
   );
 }

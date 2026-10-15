@@ -25,9 +25,11 @@ AddCharset utf-8 .ttl .jsonld .html
 Options -MultiViews -Indexes
 # A page's every representation is text, and the largest HTML pages run to
 # hundreds of KB uncompressed -- no host observed so far compresses these by
-# a platform default the way it does for some other types.
+# a platform default the way it does for some other types. Cascades to this
+# slug's assets/*.css too (its own largest files: ~80KB uncompressed for a
+# full design-system stylesheet).
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json
+  AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json text/css
 </IfModule>
 <IfModule mod_headers.c>
   Header merge Vary Accept
