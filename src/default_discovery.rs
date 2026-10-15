@@ -46,7 +46,13 @@ impl Discoverer for DefaultDiscoverer {
         });
         continue;
       };
-      let kind = kind(&version_dir, default_base).unwrap_or("ontology");
+      let kind = match kind(&version_dir, default_base) {
+        Ok(kind) => kind.unwrap_or("ontology"),
+        Err(reason) => {
+          discovery.skipped.push(Skipped { dir_name, reason });
+          continue;
+        }
+      };
       let parsed = parse_turtle(&version_dir.join(&graph_file), &format!("{default_base}{kind}/{dir_name}"));
       let (triples, prefixes) = match parsed {
         Ok(parsed) => parsed,
@@ -100,13 +106,14 @@ impl Discoverer for DefaultDiscoverer {
 }
 
 /// The asset type its `metadata.ttl`'s `dcat:type` covers, if it has a
-/// `metadata.ttl` and that predicate resolves to one of [`ASSET_TYPES`].
-fn kind(dir: &Path, default_base: &str) -> Option<&'static str> {
+/// `metadata.ttl` and that predicate resolves to one of [`ASSET_TYPES`]. A
+/// `metadata.ttl` that does not parse is an error, not a silent default.
+fn kind(dir: &Path, default_base: &str) -> Result<Option<&'static str>, String> {
   let metadata = dir.join("metadata.ttl");
   if !metadata.is_file() {
-    return None;
+    return Ok(None);
   }
-  let (meta, _) = parse_turtle(&metadata, default_base).ok()?;
+  let (meta, _) = parse_turtle(&metadata, default_base)?;
   let codes: Vec<&str> = meta
     .iter()
     .filter(|t| t.predicate.as_str() == DCAT_TYPE)
@@ -115,10 +122,12 @@ fn kind(dir: &Path, default_base: &str) -> Option<&'static str> {
       _ => None,
     })
     .collect();
-  ASSET_TYPES
-    .iter()
-    .find(|(_, covered)| codes.iter().any(|c| covered.contains(c)))
-    .map(|(name, _)| *name)
+  Ok(
+    ASSET_TYPES
+      .iter()
+      .find(|(_, covered)| codes.iter().any(|c| covered.contains(c)))
+      .map(|(name, _)| *name),
+  )
 }
 
 /// Every directory name directly under `dir`, or none if `dir` itself does
@@ -178,5 +187,25 @@ mod tests {
     let v = &discovery.published[0];
     assert_eq!(v.namespace, "https://hub.test/ontology/rel/v1#");
     assert!(v.triples.iter().any(|t| t.subject.to_string() == "<https://hub.test/ontology/rel/v1#Thing>"));
+  }
+
+  #[test]
+  fn a_malformed_metadata_file_skips_the_version_instead_of_defaulting_to_ontology() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("bad/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<#> a owl:Ontology .\n",
+    )
+    .unwrap();
+    fs::write(version_dir.join("metadata.ttl"), "<> a <").unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.published.is_empty());
+    assert_eq!(discovery.skipped.len(), 1);
+    assert_eq!(discovery.skipped[0].dir_name, "bad/v1");
+    assert!(discovery.skipped[0].reason.contains("metadata.ttl"));
   }
 }
