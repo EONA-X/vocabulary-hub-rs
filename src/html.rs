@@ -86,8 +86,8 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} {version}</title>
 <link rel="canonical" href="{canonical}">
-<link rel="alternate" type="text/turtle" href="{version}.ttl">
-<link rel="alternate" type="application/ld+json" href="{version}.jsonld">
+<link rel="alternate" type="text/turtle" href="{format_ttl}">
+<link rel="alternate" type="application/ld+json" href="{format_jsonld}">
 {stylesheets}<style>{PAGE_CSS}{extra_page_css}</style>
 </head>
 <body>
@@ -97,6 +97,8 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
 "#,
     title = esc(&page.title),
     version = esc(&page.version),
+    format_ttl = format_href(&page.version, "ttl"),
+    format_jsonld = format_href(&page.version, "jsonld"),
     canonical = esc(&format!("{}/{}/{}/{}", v.base.trim_end_matches('/'), v.kind, v.slug, v.version)),
   )
 }
@@ -247,9 +249,9 @@ fn VocabularyPage(props: &PageProps) -> Html {
         </dl>
         <p class="voc-formats">
           { "Also available as " }
-          <a href={format!("{}.ttl", p.version)}>{ "Turtle" }</a>
+          <a href={format_href(&p.version, "ttl")}>{ "Turtle" }</a>
           { " · " }
-          <a href={format!("{}.jsonld", p.version)}>{ "JSON-LD" }</a>
+          <a href={format_href(&p.version, "jsonld")}>{ "JSON-LD" }</a>
         </p>
         if !p.terms.is_empty() {
           { p.section_terms.clone() }
@@ -366,6 +368,23 @@ fn curie(v: &Vocabulary, iri: &str) -> String {
 }
 
 /// For the hand-written `<head>` only; the body is escaped by Yew.
+/// A relative link to a sibling file named after the version directory. The name is percent-encoded as a
+/// path segment and prefixed with `./`, so a colon cannot turn it into a `scheme:` URL and `#`, `?` or `%`
+/// stay literal.
+fn format_href(version: &str, ext: &str) -> String {
+  let mut href = String::from("./");
+  for b in version.bytes() {
+    if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+      href.push(b as char);
+    } else {
+      href.push_str(&format!("%{b:02X}"));
+    }
+  }
+  href.push('.');
+  href.push_str(ext);
+  href
+}
+
 fn esc(s: &str) -> String {
   s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
@@ -401,5 +420,25 @@ mod tests {
     assert!(page.contains("href=\"#Thing\""), "{page}");
     assert!(!page.contains("id=\"#Thing\"") && !page.contains("##Thing"), "{page}");
     assert!(!page.contains("logy-other"), "{page}");
+  }
+
+  #[test]
+  fn a_version_directory_name_with_a_scheme_or_url_delimiters_yields_percent_encoded_dot_slash_relative_format_links() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/javascript:alert(1)#x");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<http://example.org/onto#> a owl:Ontology .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+    let v = &discovery.published[0];
+
+    let page = render(v, &HubConfig::default(), &DefaultComponents);
+
+    assert!(!page.contains("href=\"javascript:"), "{page}");
+    assert!(page.contains("href=\"./javascript%3Aalert%281%29%23x.ttl\""), "{page}");
+    assert!(page.contains("href=\"./javascript%3Aalert%281%29%23x.jsonld\""), "{page}");
   }
 }

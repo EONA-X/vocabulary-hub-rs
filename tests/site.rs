@@ -188,8 +188,8 @@ fn the_html_links_its_machine_readable_twins_and_escapes_literals() {
 
   let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
   assert!(html.contains("<title>Example ODRL Profile"), "{html}");
-  assert!(html.contains(r#"href="v0.0.1.ttl""#));
-  assert!(html.contains(r#"href="v0.0.1.jsonld""#));
+  assert!(html.contains(r#"href="./v0.0.1.ttl""#));
+  assert!(html.contains(r#"href="./v0.0.1.jsonld""#));
   assert!(html.contains("A profile for &lt;policies&gt; &amp; claims."), "{html}");
   assert!(!html.contains("<policies>"));
 }
