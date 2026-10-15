@@ -192,6 +192,20 @@ fn the_htaccess_answers_only_under_its_published_path_even_behind_a_router() {
 }
 
 #[test]
+fn the_htaccess_compresses_every_representation_it_serves() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+
+  write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
+
+  let htaccess = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/.htaccess")).unwrap();
+  assert!(
+    htaccess.contains("AddOutputFilterByType DEFLATE text/html text/turtle application/ld+json"),
+    "{htaccess}"
+  );
+}
+
+#[test]
 fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
   let src = tempfile::tempdir().unwrap();
   let out = tempfile::tempdir().unwrap();
