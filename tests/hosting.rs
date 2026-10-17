@@ -58,3 +58,75 @@ fn the_router_adds_the_trailing_slash_with_an_explicit_https_url() {
     "{router}"
   );
 }
+
+#[test]
+fn every_hosting_path_the_scripts_reference_exists() {
+  let mut missing = Vec::new();
+  for dir in ["scripts", "scripts/examples"] {
+    for entry in fs::read_dir(dir).unwrap() {
+      let path = entry.unwrap().path();
+      if path.extension().is_none_or(|ext| ext != "sh") {
+        continue;
+      }
+      for line in fs::read_to_string(&path).unwrap().lines() {
+        let mut rest = line;
+        while let Some(at) = rest.find("hosting/") {
+          let tail = &rest[at..];
+          let end = tail.find(|c: char| !(c.is_ascii_alphanumeric() || "_./-".contains(c))).unwrap_or(tail.len());
+          let referenced = tail[..end].trim_end_matches(['.', ',']);
+          if !std::path::Path::new(referenced).exists() {
+            missing.push(format!("{}: {referenced}", path.display()));
+          }
+          rest = &tail[end..];
+        }
+      }
+    }
+  }
+  assert!(missing.is_empty(), "scripts reference hosting files that do not exist: {missing:?}");
+}
+
+#[test]
+fn the_deploy_script_refuses_a_tilde_target_that_lftp_expands_to_the_account_root() {
+  use std::os::unix::fs::PermissionsExt;
+  use std::process::Command;
+
+  // A stub lftp on PATH: if the guard lets the value through, it runs.
+  let bin = std::env::temp_dir().join(format!("vocab-hub-stub-lftp-{}", std::process::id()));
+  fs::create_dir_all(&bin).unwrap();
+  let stub = bin.join("lftp");
+  fs::write(&stub, "#!/bin/sh\ncat >/dev/null\nexit 0\n").unwrap();
+  fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+  let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+
+  for dir in ["~", "~/", "~/voc", "~user"] {
+    let status = Command::new("sh")
+      .args(["scripts/deploy-sftp.sh", "public", "mirror"])
+      .env("PATH", &path)
+      .env("OVH_SFTP_HOST", "h")
+      .env("OVH_SFTP_USER", "u")
+      .env("OVH_SFTP_PASSWORD", "p")
+      .env("OVH_SSH_KNOWN_HOSTS", "k")
+      .env("OVH_SFTP_DIR", dir)
+      .status()
+      .unwrap();
+    assert_eq!(status.code(), Some(2), "OVH_SFTP_DIR='{dir}' must be refused");
+  }
+  fs::remove_dir_all(&bin).ok();
+}
+
+#[test]
+fn check_conneg_reports_a_fail_line_for_every_check_when_the_host_is_unreachable() {
+  use std::process::Command;
+
+  // Port 1 refuses the connection: curl fails at the transport level.
+  let output = Command::new("sh")
+    .args(["scripts/check-conneg.sh", "http://127.0.0.1:1/", "ontology/x", "v1", "https://x/"])
+    .output()
+    .unwrap();
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert_eq!(output.status.code(), Some(1), "stdout: {stdout}");
+  assert!(
+    stdout.lines().filter(|l| l.starts_with("FAIL ")).count() >= 5,
+    "every check must report: {stdout}"
+  );
+}

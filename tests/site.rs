@@ -188,8 +188,8 @@ fn the_html_links_its_machine_readable_twins_and_escapes_literals() {
 
   let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
   assert!(html.contains("<title>Example ODRL Profile"), "{html}");
-  assert!(html.contains(r#"href="v0.0.1.ttl""#));
-  assert!(html.contains(r#"href="v0.0.1.jsonld""#));
+  assert!(html.contains(r#"href="./v0.0.1.ttl""#));
+  assert!(html.contains(r#"href="./v0.0.1.jsonld""#));
   assert!(html.contains("A profile for &lt;policies&gt; &amp; claims."), "{html}");
   assert!(!html.contains("<policies>"));
 }
@@ -270,6 +270,28 @@ fn the_html_names_the_published_iri_as_canonical_wherever_it_is_served() {
   let out = tempfile::tempdir().unwrap();
 
   write_site(out.path(), &published(src.path()), &config(), &DefaultComponents).unwrap();
+
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(
+    html.contains(r#"<link rel="canonical" href="https://example.test/vocabulary/example-profile/v0.0.1">"#),
+    "{html}"
+  );
+}
+
+#[test]
+fn the_html_canonical_is_the_published_iri_even_when_the_source_namespace_differs() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fs::create_dir_all(src.path().join("example-profile/v0.0.1")).unwrap();
+  fs::write(
+    src.path().join("example-profile/v0.0.1/ontology.ttl"),
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://elsewhere.example/alpha#> a owl:Ontology .\n<https://elsewhere.example/alpha#T> a owl:Class .\n",
+  )
+  .unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/metadata.ttl"), METADATA).unwrap();
+  let published = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+
+  write_site(out.path(), &published, &config(), &DefaultComponents).unwrap();
 
   let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
   assert!(
@@ -386,4 +408,81 @@ fn one_asset_type_and_slug_on_both_hosts_is_refused() {
   let err = write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap_err();
 
   assert!(err.to_string().contains("vocabulary/example-profile"), "{err}");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn write_site_works_when_called_from_inside_a_tokio_runtime() {
+  let config = HubConfig::default();
+  let found = DefaultDiscoverer.discover(Path::new("tests/fixtures/vocabularies"), &config.site_base).unwrap();
+  let out = tempfile::tempdir().unwrap();
+  write_site(out.path(), &found.published, &config, &DefaultComponents).unwrap();
+}
+
+#[test]
+fn a_member_iri_with_a_script_scheme_is_shown_as_text_and_never_linked() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  let ttl = format!(
+    r#"@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+<{NS}> a owl:Ontology .
+<{NS}A> a owl:Class ; skos:member <javascript:alert(3)>, <data:text/html,hi>, <http://www.w3.org/ns/odrl/2/eq> .
+"#
+  );
+  fs::create_dir_all(src.path().join("example-profile/v0.0.1")).unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/ontology.ttl"), ttl).unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/metadata.ttl"), METADATA).unwrap();
+  let vocabularies = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+
+  write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
+
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(!html.contains(r#"href="javascript:"#), "{html}");
+  assert!(!html.contains(r#"href="data:"#), "{html}");
+  assert!(html.contains("javascript:alert(3)"), "{html}");
+  assert!(html.contains(r#"href="http://www.w3.org/ns/odrl/2/eq""#), "{html}");
+}
+
+#[test]
+fn the_html_shows_every_value_of_an_annotation_even_when_several_share_a_language() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fs::create_dir_all(src.path().join("example-profile/v0.0.1")).unwrap();
+  fs::write(
+    src.path().join("example-profile/v0.0.1/ontology.ttl"),
+    format!(
+      r#"@prefix ex: <{NS}> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+ex: a owl:Ontology ; owl:versionInfo "0.0.1" .
+ex:Thing a owl:Class ; rdfs:comment "first remark", "second remark" .
+"#
+    ),
+  )
+  .unwrap();
+  fs::write(src.path().join("example-profile/v0.0.1/metadata.ttl"), METADATA).unwrap();
+  let vocabularies = DefaultDiscoverer.discover(src.path(), BASE).unwrap().published;
+
+  write_site(out.path(), &vocabularies, &config(), &DefaultComponents).unwrap();
+
+  let html = fs::read_to_string(out.path().join("example.test/vocabulary/example-profile/v0.0.1.html")).unwrap();
+  assert!(html.contains("first remark"), "{html}");
+  assert!(html.contains("second remark"), "{html}");
+}
+
+#[test]
+fn every_fixture_vocabulary_mints_its_iris_under_the_default_site_base() {
+  // scripts/hosting-acceptance.sh asserts each body declares the IRI the build
+  // publishes it under, and the build publishes under the site base.
+  let config = HubConfig::default();
+  let found = DefaultDiscoverer.discover(Path::new("tests/fixtures/vocabularies"), &config.site_base).unwrap();
+  assert!(!found.published.is_empty());
+  for v in &found.published {
+    assert_eq!(
+      v.namespace,
+      format!("{}{}/{}/{}#", config.site_base, v.kind, v.slug, v.version),
+      "{}",
+      v.dir_name
+    );
+  }
 }

@@ -13,9 +13,14 @@
 //! (`…/v0.0.1#GenericClaim`) scrolls to that term. No script: the host serves
 //! flat files and nothing else.
 
-use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::pin;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::task::{Context, Poll, Wake, Waker};
+use std::thread::{self, Thread};
 
+use oxrdf::{NamedOrBlankNode, Term, Triple};
 use rdf_sitegen::{Indices, Ontology, RDF_TYPE, RDFS_COMMENT, RDFS_LABEL, UNTAGGED, subjects_in_namespace};
 use yew::{AttrValue, Html, Properties, function_component, html};
 
@@ -25,6 +30,7 @@ use crate::model::Vocabulary;
 
 const DCT_TITLE: &str = "http://purl.org/dc/terms/title";
 const DCT_DESCRIPTION: &str = "http://purl.org/dc/terms/description";
+const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
 const SKOS: &str = "http://www.w3.org/2004/02/skos/core#";
 
@@ -60,10 +66,8 @@ body{margin:0}
 
 pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> String {
   let page = Rc::new(PageData::build(v, config, components));
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .build()
-    .expect("a single-thread runtime for Yew's server renderer");
-  let body = runtime.block_on(
+  // Not `tokio::runtime::block_on`: that panics when the caller is already inside a tokio runtime.
+  let body = block_on(
     yew::LocalServerRenderer::<VocabularyPage>::with_props(PageProps { page: page.clone() })
       .hydratable(false)
       .render(),
@@ -82,8 +86,8 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} {version}</title>
 <link rel="canonical" href="{canonical}">
-<link rel="alternate" type="text/turtle" href="{version}.ttl">
-<link rel="alternate" type="application/ld+json" href="{version}.jsonld">
+<link rel="alternate" type="text/turtle" href="{format_ttl}">
+<link rel="alternate" type="application/ld+json" href="{format_jsonld}">
 {stylesheets}<style>{PAGE_CSS}{extra_page_css}</style>
 </head>
 <body>
@@ -93,8 +97,29 @@ pub fn render(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -
 "#,
     title = esc(&page.title),
     version = esc(&page.version),
-    canonical = esc(page.namespace.trim_end_matches('#')),
+    format_ttl = format_href(&page.version, "ttl"),
+    format_jsonld = format_href(&page.version, "jsonld"),
+    canonical = esc(&format!("{}/{}/{}/{}", v.base.trim_end_matches('/'), v.kind, v.slug, v.version)),
   )
+}
+
+/// Drives a future to completion on the current thread without owning a tokio runtime.
+fn block_on<F: Future>(future: F) -> F::Output {
+  struct ThreadWaker(Thread);
+  impl Wake for ThreadWaker {
+    fn wake(self: Arc<Self>) {
+      self.0.unpark();
+    }
+  }
+  let waker = Waker::from(Arc::new(ThreadWaker(thread::current())));
+  let mut cx = Context::from_waker(&waker);
+  let mut future = pin!(future);
+  loop {
+    match future.as_mut().poll(&mut cx) {
+      Poll::Ready(out) => return out,
+      Poll::Pending => thread::park(),
+    }
+  }
 }
 
 /// Everything the page shows, extracted from the graph and the config up
@@ -123,7 +148,7 @@ struct TermData {
   curie: String,
   type_badges: Vec<Html>,
   notes: Vec<Html>,
-  members: Vec<(String, String)>,
+  members: Vec<(Option<String>, String)>,
 }
 
 impl PageData {
@@ -137,7 +162,7 @@ impl PageData {
       ("Namespace", plain(ns)),
     ];
     for (pred, heading) in [(DCT_DESCRIPTION, "Description"), (RDFS_COMMENT, "Comment")] {
-      let values = literals(&idx, ns, pred);
+      let values = literals(&v.triples, ns, pred);
       if !values.is_empty() {
         overview.push((heading, values));
       }
@@ -148,27 +173,24 @@ impl PageData {
 
     let terms: Vec<TermData> = subjects_in_namespace(&v.triples, ns)
       .into_iter()
-      .filter(|t| t != ns)
-      .map(|t| {
-        let local = t[ns.len()..].to_string();
-        TermData {
-          label: label(&idx, &t).unwrap_or(&local).to_string(),
-          curie: curie(v, &t),
-          type_badges: idx
-            .links(&t, RDF_TYPE)
-            .iter()
-            .map(|ty| components.onto_badge(AttrValue::from(curie(v, ty)), BadgeVariant::Kind(term_kind(ty))))
-            .collect(),
-          notes: TERM_NOTES
-            .iter()
-            .filter_map(|(pred, heading)| {
-              let values = literals(&idx, &t, pred);
-              (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
-            })
-            .collect(),
-          members: idx.links(&t, &format!("{SKOS}member")).iter().map(|m| (href(v, m), curie(v, m))).collect(),
-          anchor: local,
-        }
+      .filter_map(|t| Some((term_local(ns, &t)?.to_string(), t)))
+      .map(|(local, t)| TermData {
+        label: label(&idx, &t).unwrap_or(&local).to_string(),
+        curie: curie(v, &t),
+        type_badges: idx
+          .links(&t, RDF_TYPE)
+          .iter()
+          .map(|ty| components.onto_badge(AttrValue::from(curie(v, ty)), BadgeVariant::Kind(term_kind(ty))))
+          .collect(),
+        notes: TERM_NOTES
+          .iter()
+          .filter_map(|(pred, heading)| {
+            let values = literals(&v.triples, &t, pred);
+            (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
+          })
+          .collect(),
+        members: idx.links(&t, &format!("{SKOS}member")).iter().map(|m| (href(v, m), curie(v, m))).collect(),
+        anchor: local,
       })
       .collect();
     let section_terms = components.section_head(
@@ -223,9 +245,9 @@ fn VocabularyPage(props: &PageProps) -> Html {
         </dl>
         <p class="voc-formats">
           { "Also available as " }
-          <a href={format!("{}.ttl", p.version)}>{ "Turtle" }</a>
+          <a href={format_href(&p.version, "ttl")}>{ "Turtle" }</a>
           { " · " }
-          <a href={format!("{}.jsonld", p.version)}>{ "JSON-LD" }</a>
+          <a href={format_href(&p.version, "jsonld")}>{ "JSON-LD" }</a>
         </p>
         if !p.terms.is_empty() {
           { p.section_terms.clone() }
@@ -253,7 +275,10 @@ fn term(t: &TermData) -> Html {
       </dl>
       if !t.members.is_empty() {
         <ul class="voc-members">
-          { for t.members.iter().map(|(href, curie)| html! { <li><a href={href.clone()}><code>{ curie }</code></a></li> }) }
+          { for t.members.iter().map(|(href, curie)| match href {
+            Some(href) => html! { <li><a href={href.clone()}><code>{ curie }</code></a></li> },
+            None => html! { <li><code>{ curie }</code></li> },
+          }) }
         </ul>
       }
     </article>
@@ -275,27 +300,29 @@ fn term_kind(iri: &str) -> TermKind {
   }
 }
 
-/// Every language's value of `predicate` on `subject`, English first, then the
-/// untagged one, then the others alphabetically.
-fn literals(idx: &Indices, subject: &str, predicate: &str) -> Vec<LiteralValue> {
-  let Some(by_lang) = idx.literal_all_langs(subject, predicate) else {
-    return Vec::new();
-  };
-  let sorted: BTreeMap<(u8, &str), &str> = by_lang
-    .iter()
-    .map(|(lang, value)| {
-      let rank = match lang.as_str() {
-        "en" => 0,
-        UNTAGGED => 1,
-        _ => 2,
-      };
-      ((rank, lang.as_str()), value.as_str())
-    })
-    .collect();
-  sorted
-    .into_iter()
-    .map(|((_, lang), value)| LiteralValue::new(value.to_string(), (!lang.is_empty()).then(|| lang.to_string()), None))
-    .collect()
+/// Every value of `predicate` on `subject`, English first, then the untagged
+/// ones, then the other languages alphabetically; values sharing a language
+/// keep their source order.
+fn literals(triples: &[Triple], subject: &str, predicate: &str) -> Vec<LiteralValue> {
+  let mut values: Vec<LiteralValue> = Vec::new();
+  for t in triples {
+    let NamedOrBlankNode::NamedNode(s) = &t.subject else { continue };
+    let Term::Literal(l) = &t.object else { continue };
+    if s.as_str() != subject || t.predicate.as_str() != predicate {
+      continue;
+    }
+    let datatype = (l.language().is_none() && l.datatype().as_str() != XSD_STRING).then(|| l.datatype().as_str().to_string());
+    let value = LiteralValue::new(l.value().to_string(), l.language().map(str::to_string), datatype);
+    if !values.contains(&value) {
+      values.push(value);
+    }
+  }
+  values.sort_by_key(|v| match v.lang.as_deref() {
+    Some("en") => (0, String::new()),
+    None => (1, String::new()),
+    Some(lang) => (2, lang.to_string()),
+  });
+  values
 }
 
 /// English, else untagged — the corpus is English-first today.
@@ -307,24 +334,155 @@ fn label<'a>(idx: &'a Indices, subject: &str) -> Option<&'a str> {
   text(idx, subject, RDFS_LABEL).or_else(|| text(idx, subject, &format!("{SKOS}prefLabel")))
 }
 
-/// In-page anchor for a term of this vocabulary, the IRI itself otherwise.
-fn href(v: &Vocabulary, iri: &str) -> String {
-  match iri.strip_prefix(v.namespace.as_str()) {
-    Some(local) if !local.is_empty() => format!("#{local}"),
-    _ => iri.to_string(),
+/// The local name of `iri` if it is a term of the vocabulary rooted at `root`:
+/// what follows the root when it ends in `#` or `/`, else what follows
+/// `root#` or `root/` (`<…/onto>` mints `…/onto#Term` or `…/onto/Term`), so a
+/// local name never carries the separator or a sibling's path.
+fn term_local<'a>(root: &str, iri: &'a str) -> Option<&'a str> {
+  let rest = iri.strip_prefix(root)?;
+  let local = if root.ends_with(['#', '/']) { rest } else { rest.strip_prefix(['#', '/'])? };
+  (!local.is_empty()).then_some(local)
+}
+
+/// In-page anchor for a term of this vocabulary, the IRI itself for http(s)
+/// IRIs, and none for any other scheme (`javascript:`, `data:`, ...): vocabulary
+/// content must not be able to plant a script-running link.
+fn href(v: &Vocabulary, iri: &str) -> Option<String> {
+  match term_local(&v.namespace, iri) {
+    Some(local) => Some(format!("#{local}")),
+    None => {
+      let scheme = iri.split(':').next().unwrap_or_default();
+      (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then(|| iri.to_string())
+    }
   }
 }
 
-/// Shortest CURIE the source's own prefix table allows, else the full IRI.
+/// Shortest CURIE the source's own prefix table allows, else the full IRI. Ties on
+/// namespace length go to the alphabetically first prefix, so the choice never
+/// depends on the parser's prefix order.
 fn curie(v: &Vocabulary, iri: &str) -> String {
   v.prefixes
     .iter()
-    .filter_map(|(p, ns)| iri.strip_prefix(ns.as_str()).map(|local| (ns.len(), format!("{p}:{local}"))))
-    .max_by_key(|(len, _)| *len)
-    .map_or_else(|| iri.to_string(), |(_, c)| c)
+    .filter_map(|(p, ns)| iri.strip_prefix(ns.as_str()).map(|local| (ns.len(), p, format!("{p}:{local}"))))
+    .max_by(|(la, pa, _), (lb, pb, _)| la.cmp(lb).then_with(|| pb.cmp(pa)))
+    .map_or_else(|| iri.to_string(), |(_, _, c)| c)
+}
+
+/// A relative link to a sibling file named after the version directory. The name is percent-encoded as a
+/// path segment and prefixed with `./`, so a colon cannot turn it into a `scheme:` URL and `#`, `?` or `%`
+/// stay literal.
+fn format_href(version: &str, ext: &str) -> String {
+  let mut href = String::from("./");
+  for b in version.bytes() {
+    if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+      href.push(b as char);
+    } else {
+      href.push_str(&format!("%{b:02X}"));
+    }
+  }
+  href.push('.');
+  href.push_str(ext);
+  href
 }
 
 /// For the hand-written `<head>` only; the body is escaped by Yew.
 fn esc(s: &str) -> String {
   s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+  use std::fs;
+
+  use super::*;
+  use crate::default_components::DefaultComponents;
+  use crate::default_discovery::DefaultDiscoverer;
+  use crate::discoverer::Discoverer;
+
+  #[test]
+  fn an_ontology_iri_without_a_trailing_hash_anchors_its_hash_terms_by_local_name_and_skips_sibling_prefixes() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n@prefix : <http://example.org/onto#> .\n\
+       <http://example.org/onto> a owl:Ontology .\n:Thing a owl:Class .\n:Other a owl:Class .\n\
+       :Thing :related :Other .\n<http://example.org/ontology-other/X> a owl:Class .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+    let v = &discovery.published[0];
+    assert_eq!(v.namespace, "http://example.org/onto");
+
+    let page = render(v, &HubConfig::default(), &DefaultComponents);
+
+    assert!(page.contains("id=\"Thing\""), "{page}");
+    assert!(page.contains("href=\"#Thing\""), "{page}");
+    assert!(!page.contains("id=\"#Thing\"") && !page.contains("##Thing"), "{page}");
+    assert!(!page.contains("logy-other"), "{page}");
+  }
+
+  #[test]
+  fn an_ontology_iri_without_a_trailing_separator_still_lists_its_slash_terms() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+       <http://example.org/onto> a owl:Ontology .\n<http://example.org/onto/Thing> a owl:Class .\n\
+       <http://example.org/ontology-other/X> a owl:Class .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    let page = render(&discovery.published[0], &HubConfig::default(), &DefaultComponents);
+
+    assert!(page.contains("id=\"Thing\""), "{page}");
+    assert!(!page.contains("logy-other"), "{page}");
+  }
+
+  #[test]
+  fn a_namespace_bound_to_two_prefixes_yields_the_same_curie_whatever_order_the_parser_listed_them_in() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n@prefix ex: <http://x.org/ont#> .\n@prefix ex2: <http://x.org/ont#> .\n\
+       <http://x.org/ont#> a owl:Ontology .\nex:T a owl:Class .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+    let mut v = discovery.published[0].clone();
+
+    v.prefixes.sort();
+    let forward = curie(&v, "http://x.org/ont#T");
+    v.prefixes.reverse();
+    let backward = curie(&v, "http://x.org/ont#T");
+
+    assert_eq!(forward, backward);
+    assert_eq!(forward, "ex:T");
+  }
+
+  #[test]
+  fn a_version_directory_name_with_a_scheme_or_url_delimiters_yields_percent_encoded_dot_slash_relative_format_links() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("onto/javascript:alert(1)#x");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<http://example.org/onto#> a owl:Ontology .\n",
+    )
+    .unwrap();
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+    let v = &discovery.published[0];
+
+    let page = render(v, &HubConfig::default(), &DefaultComponents);
+
+    assert!(!page.contains("href=\"javascript:"), "{page}");
+    assert!(page.contains("href=\"./javascript%3Aalert%281%29%23x.ttl\""), "{page}");
+    assert!(page.contains("href=\"./javascript%3Aalert%281%29%23x.jsonld\""), "{page}");
+  }
 }

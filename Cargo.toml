@@ -15,11 +15,11 @@ oxrdf = "0.3.4"
 # The HTML representation is rendered server-side, to static files, with a
 # small set of local Yew components styled by the configured stylesheets.
 yew = { version = "0.23", features = ["ssr"] }
-tokio = { version = "1", features = ["rt"] }
 # Consumers parse expanded JSON-LD with serde_json and preserve_order: key order is display order.
 serde_json = { version = "1", features = ["preserve_order"] }
 oxrdfxml = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros"] }
 oxjsonld = "0.2.6"

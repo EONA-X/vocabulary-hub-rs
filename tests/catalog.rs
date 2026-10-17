@@ -12,7 +12,7 @@ use vocabulary_hub_rs::catalog::write_catalog;
 use vocabulary_hub_rs::config::HubConfig;
 use vocabulary_hub_rs::default_discovery::DefaultDiscoverer;
 
-const BUILT_AT: &str = "2026-10-01 12:00 UTC";
+const BUILT_AT: &str = "2026-10-01T12:00:00Z";
 const DCT: &str = "http://purl.org/dc/terms/";
 const DCAT: &str = "http://www.w3.org/ns/dcat#";
 const FOAF: &str = "http://xmlns.com/foaf/0.1/";
@@ -218,6 +218,34 @@ fn alignments_json_lists_the_crosswalks_with_their_sides_in_authored_order() {
 }
 
 #[test]
+fn a_crosswalk_side_goes_to_the_ontology_whose_namespace_is_the_longest_match_not_a_mere_string_prefix() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for (slug, iri) in [("a", "https://ex.org/onto"), ("b", "https://ex.org/onto-ext")] {
+    write(
+      src.path(),
+      &format!("{slug}/v1.0.0/metadata.ttl"),
+      &metadata(slug, "1.0.0", "c_89b4bdb7", "CURRENT", ""),
+    );
+    write(
+      src.path(),
+      &format!("{slug}/v1.0.0/ontology.ttl"),
+      &format!("@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<{iri}> a owl:Ontology .\n"),
+    );
+  }
+  write(src.path(), "x/v1.0.0/metadata.ttl", &metadata("X", "1.0.0", "c_bba2bb35", "CURRENT", ""));
+  write(
+    src.path(),
+    "x/v1.0.0/alignment.ttl",
+    "@prefix void: <http://rdfs.org/ns/void#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n<https://ex.org/x#ls> a void:Linkset ; rdfs:seeAlso <https://ex.org/onto-ext> .\n",
+  );
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let manifest = json(out.path(), "alignments.json");
+
+  assert_eq!(manifest["alignments"][0]["sides"], json!(["b"]));
+}
+
+#[test]
 fn every_version_is_published_in_four_formats_that_all_carry_the_source_graph() {
   let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
   build(src.path(), out.path());
@@ -282,7 +310,10 @@ fn the_catalog_is_a_dcat_catalog_under_the_configured_catalog_iri() {
 
   let catalog = node(&nodes, CATALOG_IRI);
   assert_eq!(catalog["@type"], json!([format!("{DCAT}Catalog")]));
-  assert_eq!(catalog[&format!("{DCT}modified")], json!([{"@value": BUILT_AT}]));
+  assert_eq!(
+    catalog[&format!("{DCT}modified")],
+    json!([{"@value": BUILT_AT, "@type": "http://www.w3.org/2001/XMLSchema#dateTime"}])
+  );
   assert_eq!(
     catalog[&format!("{DCT}title")],
     json!([{"@value": "Example Vocabulary Hub", "@language": "en"}])
@@ -341,7 +372,9 @@ fn each_asset_is_a_dataset_carrying_its_latest_metadata_and_the_computed_links()
   for d in &distributions {
     let d = node(&nodes, d);
     assert_eq!(d["@type"], json!([format!("{DCAT}Distribution")]));
-    assert_eq!(d[&format!("{DCAT}mediaType")].as_array().unwrap().len(), 1);
+    let media_type = ids(&d[&format!("{DCAT}mediaType")]);
+    assert_eq!(media_type.len(), 1);
+    assert!(media_type[0].starts_with("http://www.iana.org/assignments/media-types/"), "{media_type:?}");
     let url = &ids(&d[&format!("{DCAT}downloadURL")])[0];
     assert!(url.starts_with(&format!("{DOCS_BASE}/vocab-alpha/v2.1.0/ontology.")), "{url}");
     assert!(d[&format!("{DCT}title")][0]["@value"].as_str().unwrap().starts_with("Vocab Alpha 2.1.0 ("));
@@ -412,6 +445,59 @@ fn a_version_the_hub_publishes_links_its_dereferenceable_iri() {
 }
 
 #[test]
+fn versions_are_ordered_numerically_so_v1_10_0_is_newer_than_v1_9_0() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for version in ["1.9.0", "1.10.0"] {
+    write(
+      src.path(),
+      &format!("a/v{version}/metadata.ttl"),
+      &metadata("A", version, "c_89b4bdb7", "CURRENT", ""),
+    );
+    write(
+      src.path(),
+      &format!("a/v{version}/ontology.ttl"),
+      "<https://ex.org/a#> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+    );
+  }
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let manifest = json(out.path(), "ontologies.json");
+  assert_eq!(manifest["ontologies"][0]["version"], "1.10.0");
+  assert_eq!(manifest["ontologies"][0]["downloads"], downloads("a/v1.10.0", "ontology"));
+
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = node(&nodes, &format!("{CATALOG_IRI}/a"));
+  assert_eq!(ids(&asset[&format!("{DCAT}hasCurrentVersion")]), [format!("{CATALOG_IRI}/a/v1.10.0")]);
+  let newer = node(&nodes, &format!("{CATALOG_IRI}/a/v1.10.0"));
+  assert_eq!(ids(&newer[&format!("{DCAT}previousVersion")]), [format!("{CATALOG_IRI}/a/v1.9.0")]);
+  let older = node(&nodes, &format!("{CATALOG_IRI}/a/v1.9.0"));
+  assert!(older.get(format!("{DCAT}previousVersion")).is_none());
+}
+
+#[test]
+fn a_pre_release_is_older_than_its_release_so_the_release_is_the_current_version() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for version in ["1.0.0", "1.0.0-rc.1"] {
+    write(
+      src.path(),
+      &format!("a/v{version}/metadata.ttl"),
+      &metadata("A", version, "c_89b4bdb7", "CURRENT", ""),
+    );
+    write(
+      src.path(),
+      &format!("a/v{version}/ontology.ttl"),
+      "<https://ex.org/a#> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+    );
+  }
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  assert_eq!(json(out.path(), "ontologies.json")["ontologies"][0]["version"], "1.0.0");
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = node(&nodes, &format!("{CATALOG_IRI}/a"));
+  assert_eq!(ids(&asset[&format!("{DCAT}hasCurrentVersion")]), [format!("{CATALOG_IRI}/a/v1.0.0")]);
+}
+
+#[test]
 fn the_assets_are_copied_and_nothing_else_is_written() {
   let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
   build(src.path(), out.path());
@@ -440,4 +526,143 @@ fn graph_of_jsonld(data: &[u8]) -> HashSet<String> {
 fn canonical(t: &oxrdf::Triple) -> String {
   let term = |s: String| if s.starts_with("_:") { "_:b".to_string() } else { s };
   format!("{} {} {}", term(t.subject.to_string()), t.predicate, term(t.object.to_string()))
+}
+
+#[test]
+fn a_version_dir_with_metadata_but_no_graph_file_is_skipped_like_discovery_does() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  fixture(src.path());
+  // Work in progress: metadata only, no ontology.ttl or alignment.ttl yet.
+  write(src.path(), "wip/v0.1.0/metadata.ttl", &metadata("Wip", "0.1.0", "c_89b4bdb7", "DRAFT", ""));
+
+  let result = write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer);
+
+  assert!(result.is_ok(), "expected the catalog to be written, got {result:?}");
+  let manifest = json(out.path(), "ontologies.json");
+  let slugs: Vec<&str> = manifest["ontologies"].as_array().unwrap().iter().map(|o| o["slug"].as_str().unwrap()).collect();
+  assert!(!slugs.contains(&"wip"), "an unpublished version is not listed: {slugs:?}");
+  assert!(slugs.contains(&"vocab-alpha"));
+  assert!(!out.path().join("wip").exists());
+}
+
+#[test]
+fn a_missing_vocabularies_dir_is_an_error_that_leaves_the_existing_catalog_untouched() {
+  let tmp = tempfile::tempdir().unwrap();
+  let docs = tmp.path().join("docs");
+  write(&docs, "ontologies.json", "previously published");
+
+  let result = write_catalog(&tmp.path().join("does-not-exist"), &docs, BUILT_AT, &config(), &DefaultDiscoverer);
+
+  assert!(result.is_err(), "expected an error, got {result:?}");
+  assert_eq!(fs::read_to_string(docs.join("ontologies.json")).unwrap(), "previously published");
+}
+
+#[test]
+fn a_published_version_carries_the_same_term_iris_in_the_catalog_as_on_the_site() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  write(src.path(), "rel/v1/metadata.ttl", &metadata("Rel", "1", "c_89b4bdb7", "CURRENT", ""));
+  write(
+    src.path(),
+    "rel/v1/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<#> a owl:Ontology .\n<#Thing> a owl:Class .\n",
+  );
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  // The site mints it under `{SITE_BASE}ontology/rel/v1`; the catalog's own
+  // copy of the graph must not re-mint it under the catalog IRI.
+  let nt = fs::read_to_string(out.path().join("rel/v1/ontology.nt")).unwrap();
+  assert!(nt.contains(&format!("<{SITE_BASE}ontology/rel/v1#Thing>")), "{nt}");
+  assert!(!nt.contains(CATALOG_IRI), "{nt}");
+}
+
+#[test]
+fn blank_nodes_authored_with_the_same_label_in_two_metadata_files_stay_two_nodes_in_the_catalog() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  for slug in ["org-a", "org-b"] {
+    let extra = format!("<> dcterms:creator _:org .\n_:org foaf:name \"Org of {slug}\" .");
+    write(
+      src.path(),
+      &format!("{slug}/v1/metadata.ttl"),
+      &metadata(slug, "1", "c_89b4bdb7", "CURRENT", &extra),
+    );
+    write(
+      src.path(),
+      &format!("{slug}/v1/ontology.ttl"),
+      &format!("@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/{slug}#> a owl:Ontology .\n"),
+    );
+  }
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let triples: Vec<oxrdf::Triple> = oxttl::TurtleParser::new()
+    .for_reader(fs::read(out.path().join("catalog.ttl")).unwrap().as_slice())
+    .map(|t| t.unwrap())
+    .collect();
+  let creators: HashSet<String> = triples
+    .iter()
+    .filter(|t| t.predicate.as_str() == format!("{DCT}creator"))
+    .map(|t| t.object.to_string())
+    .collect();
+  assert_eq!(creators.len(), 2, "each asset keeps its own creator node: {creators:?}");
+  for creator in &creators {
+    let names = triples
+      .iter()
+      .filter(|t| t.subject.to_string() == *creator && t.predicate.as_str() == format!("{FOAF}name"))
+      .count();
+    assert_eq!(names, 1, "{creator} carries exactly one name");
+  }
+}
+
+#[test]
+fn a_site_base_without_a_trailing_slash_still_yields_well_formed_published_iris() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  let mut config = config();
+  config.site_base = "https://hub.example".to_string();
+  write_catalog(src.path(), out.path(), BUILT_AT, &config, &DefaultDiscoverer).unwrap();
+
+  let catalog = fs::read_to_string(out.path().join("catalog.ttl")).unwrap();
+  assert!(
+    catalog.contains("foaf:page <https://hub.example/"),
+    "published pages live under the host: {catalog}"
+  );
+  assert!(
+    !catalog.contains("hub.exampleontology") && !catalog.contains("hub.examplecodelist"),
+    "no IRI glues the kind onto the host: {catalog}"
+  );
+}
+
+#[test]
+fn a_catalog_iri_with_a_trailing_slash_does_not_mint_double_slash_iris() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  let mut config = config();
+  config.catalog_iri = format!("{CATALOG_IRI}/");
+  write_catalog(src.path(), out.path(), BUILT_AT, &config, &DefaultDiscoverer).unwrap();
+
+  let catalog = fs::read_to_string(out.path().join("catalog.ttl")).unwrap();
+  assert!(!catalog.contains("catalog//"), "no doubled slash in minted IRIs: {catalog}");
+}
+
+#[test]
+fn the_catalog_omits_modified_when_the_build_stamp_is_not_a_timestamp() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  write_catalog(src.path(), out.path(), "local build", &config(), &DefaultDiscoverer).unwrap();
+
+  let nodes = json(out.path(), "catalog.jsonld");
+
+  assert!(node(&nodes, CATALOG_IRI).get(format!("{DCT}modified")).is_none());
+}
+
+#[test]
+fn building_the_catalog_twice_from_unchanged_input_yields_identical_files() {
+  let src = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  let build = || {
+    let out = tempfile::tempdir().unwrap();
+    write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+    ["catalog.ttl", "catalog.jsonld"].map(|f| fs::read_to_string(out.path().join(f)).unwrap())
+  };
+  assert_eq!(build(), build());
 }

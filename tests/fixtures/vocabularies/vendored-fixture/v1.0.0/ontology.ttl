@@ -1,8 +1,8 @@
 # Not a real vocabulary. Built only by scripts/hosting-acceptance.sh, so the
 # hosting layouts are exercised with a vendored standard too: an Eona-X
-# representation of someone else's work, published on
-# https://vocabulary.eona-x.eu/. Never deployed.
-@prefix vf: <https://vocabulary.eona-x.eu/ontology/vendored-fixture/v1.0.0#> .
+# representation of someone else's work, published under
+# the default site base. Never deployed.
+@prefix vf: <https://vocabulary-hub.example/ontology/vendored-fixture/v1.0.0#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 vf: a owl:Ontology ; owl:versionInfo "1.0.0" ; rdfs:label "Vendored fixture"@en .

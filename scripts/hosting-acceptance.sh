@@ -11,10 +11,10 @@
 #   dev.test        a stand-in dev-preview domain: a stand-in Hub UI build
 #                   (and its docs/) at the root, root .htaccess =
 #                   examples/dev/.htaccess + hosting/router.htaccess +
-#                   hosting/hub-ui.htaccess (scripts/examples/dev-root.sh),
+#                   hosting/examples/hub-ui.htaccess (scripts/examples/dev-root.sh),
 #                   and every tree merged under voc/
 #   <host>.test     one per host tree: a stand-in Hub UI at the root,
-#                   hosting/router.htaccess + hosting/hub-ui.htaccess, and
+#                   hosting/router.htaccess + hosting/examples/hub-ui.htaccess, and
 #                   that host's tree under voc/ -- the layout every
 #                   published host gets here. An instantiation that fronts a
 #                   given host with its own CMS instead (installing just
@@ -54,7 +54,7 @@ for tree in "$site"/*/; do
   rm -rf "$root"
   mkdir -p "$root/voc"
   cp -r "$tree." "$root/voc/"
-  cat "$here"/hosting/router.htaccess "$here"/hosting/hub-ui.htaccess > "$root/.htaccess"
+  cat "$here"/hosting/router.htaccess "$here"/hosting/examples/hub-ui.htaccess > "$root/.htaccess"
   printf 'hub ui\n' > "$root/index.html"
 done
 hosts=${hosts# }
@@ -120,7 +120,7 @@ httpd -t 2>&1 | grep -v AH00558 || true
 httpd -k start
 until curl -s -o /dev/null http://bare.test/; do sleep 0.2; done
 
-status() { curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' "$@"; }
+status() { curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' "$@" || true; }
 hdr() { name=$1; shift; curl -sk -o /dev/null -D - "$@" | tr -d '\r' | grep -i "^$name:" || true; }
 
 # <host>/<asset-type>/<slug>/<version>
@@ -182,13 +182,13 @@ done
 
 echo "-- sites around the vocabularies"
 # Crawlers must be allowed to fetch dev pages, or they never see the noindex.
-got=$(curl -sk https://dev.test/robots.txt)
+got=$(curl -sk https://dev.test/robots.txt || true)
 case "$got" in *"Disallow: /"*) ko "dev robots.txt disallows crawling: the noindex header would never be read" ;; *"Allow: /"*) ok "dev robots.txt lets crawlers read the noindex" ;; *) ko "dev robots.txt: '$got'" ;; esac
 for path in / /robots.txt /does-not-exist; do
   got=$(hdr X-Robots-Tag "https://dev.test$path")
   case "$got" in *noindex*) ok "noindex on dev $path" ;; *) ko "no X-Robots-Tag noindex on dev $path" ;; esac
 done
-got=$(curl -sk https://dev.test/)
+got=$(curl -sk https://dev.test/ || true)
 [ "$got" = "hub ui dev build" ] && ok "dev root still serves the Hub UI dev build" || ko "dev / -> '$got'"
 for path in / /catalogue/; do
   got=$(hdr Link "https://dev.test$path")
@@ -205,15 +205,15 @@ done
 for h in dev.test $prd_hosts; do
   shell=$(cat "/srv/${h%.test}/index.html")
   for path in "/ontologies?ontology=netex" "/crosswalks?crosswalk=crosswalk-netex-datex" /ontologies; do
-    got="$(curl -sk "https://$h$path") $(status "https://$h$path")"
+    got="$(curl -sk "https://$h$path" || true) $(status "https://$h$path")"
     [ "$got" = "$shell 200 " ] && ok "$h$path loads the Hub UI shell" || ko "$h$path -> '$got' (want the Hub UI shell, 200)"
   done
   got=$(status "https://$h/docs/missing.json")
   [ "${got%% *}" = 404 ] && ok "$h: a missing docs/ file is a 404" || ko "$h/docs/missing.json -> $got (want 404)"
 done
-got="$(curl -sk https://dev.test/docs/catalog.jsonld) $(curl -sk -o /dev/null -w '%{http_code} %{content_type}' https://dev.test/docs/catalog.jsonld)"
+got="$(curl -sk https://dev.test/docs/catalog.jsonld || true) $(curl -sk -o /dev/null -w '%{http_code} %{content_type}' https://dev.test/docs/catalog.jsonld || true)"
 [ "$got" = "[] 200 application/ld+json; charset=utf-8" ] && ok "dev serves the Hub UI data as JSON-LD" || ko "dev /docs/catalog.jsonld -> '$got'"
-got=$(curl -sk https://dev.test/docs/)
+got=$(curl -sk https://dev.test/docs/ || true)
 case "$got" in *"Index of"*) ko "dev lists directories (/docs/)" ;; *) ok "dev lists no directories" ;; esac
 
 exit $fail

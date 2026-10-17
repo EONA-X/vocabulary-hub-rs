@@ -29,6 +29,8 @@ pub struct DefaultDiscoverer;
 
 impl Discoverer for DefaultDiscoverer {
   fn discover(&self, dir: &Path, default_base: &str) -> Result<Discovery, String> {
+    // Bases are joined to `<kind>/...` by plain formatting: make sure exactly one `/` separates them.
+    let default_base = &format!("{}/", default_base.trim_end_matches('/'));
     let mut discovery = Discovery::default();
     for dir_name in self.version_dirs(dir)? {
       let version_dir = dir.join(&dir_name);
@@ -46,7 +48,14 @@ impl Discoverer for DefaultDiscoverer {
         });
         continue;
       };
-      let parsed = parse_turtle(&version_dir.join(&graph_file), &format!("{default_base}{dir_name}/"));
+      let kind = match kind(&version_dir, default_base) {
+        Ok(kind) => kind.unwrap_or("ontology"),
+        Err(reason) => {
+          discovery.skipped.push(Skipped { dir_name, reason });
+          continue;
+        }
+      };
+      let parsed = parse_turtle(&version_dir.join(&graph_file), &format!("{default_base}{kind}/{dir_name}"));
       let (triples, prefixes) = match parsed {
         Ok(parsed) => parsed,
         Err(reason) => {
@@ -54,14 +63,20 @@ impl Discoverer for DefaultDiscoverer {
           continue;
         }
       };
-      let Some(namespace) = root(&triples) else {
-        discovery.skipped.push(Skipped {
-          dir_name,
-          reason: format!("no single {OWL_ONTOLOGY} or {SKOS_CONCEPT_SCHEME} root"),
-        });
-        continue;
+      // A crosswalk (`alignment.ttl`) describes links between other
+      // vocabularies and usually has no root of its own, so it falls back to
+      // its published document IRI as namespace.
+      let namespace = match root(&triples) {
+        Some(namespace) => namespace,
+        None if graph_file == "alignment.ttl" => format!("{default_base}{kind}/{dir_name}#"),
+        None => {
+          discovery.skipped.push(Skipped {
+            dir_name,
+            reason: format!("no single {OWL_ONTOLOGY} or {SKOS_CONCEPT_SCHEME} root"),
+          });
+          continue;
+        }
       };
-      let kind = kind(&version_dir, default_base).unwrap_or("ontology");
       discovery.published.push(Vocabulary {
         base: default_base.to_string(),
         kind: kind.to_string(),
@@ -77,6 +92,9 @@ impl Discoverer for DefaultDiscoverer {
   }
 
   fn version_dirs(&self, dir: &Path) -> Result<Vec<String>, String> {
+    if !dir.is_dir() {
+      return Err(format!("{}: not a directory", dir.display()));
+    }
     let mut dirs = Vec::new();
     for slug in subdirs(dir)? {
       for version in subdirs(&dir.join(&slug))? {
@@ -97,13 +115,14 @@ impl Discoverer for DefaultDiscoverer {
 }
 
 /// The asset type its `metadata.ttl`'s `dcat:type` covers, if it has a
-/// `metadata.ttl` and that predicate resolves to one of [`ASSET_TYPES`].
-fn kind(dir: &Path, default_base: &str) -> Option<&'static str> {
+/// `metadata.ttl` and that predicate resolves to one of [`ASSET_TYPES`]. A
+/// `metadata.ttl` that does not parse is an error, not a silent default.
+fn kind(dir: &Path, default_base: &str) -> Result<Option<&'static str>, String> {
   let metadata = dir.join("metadata.ttl");
   if !metadata.is_file() {
-    return None;
+    return Ok(None);
   }
-  let (meta, _) = parse_turtle(&metadata, default_base).ok()?;
+  let (meta, _) = parse_turtle(&metadata, default_base)?;
   let codes: Vec<&str> = meta
     .iter()
     .filter(|t| t.predicate.as_str() == DCAT_TYPE)
@@ -112,14 +131,16 @@ fn kind(dir: &Path, default_base: &str) -> Option<&'static str> {
       _ => None,
     })
     .collect();
-  ASSET_TYPES
-    .iter()
-    .find(|(_, covered)| codes.iter().any(|c| covered.contains(c)))
-    .map(|(name, _)| *name)
+  Ok(
+    ASSET_TYPES
+      .iter()
+      .find(|(_, covered)| codes.iter().any(|c| covered.contains(c)))
+      .map(|(name, _)| *name),
+  )
 }
 
 /// Every directory name directly under `dir`, or none if `dir` itself does
-/// not exist.
+/// not exist (callers check the vocabularies root exists first).
 fn subdirs(dir: &Path) -> Result<Vec<String>, String> {
   let entries = match fs::read_dir(dir) {
     Ok(entries) => entries,
@@ -134,6 +155,14 @@ fn subdirs(dir: &Path) -> Result<Vec<String>, String> {
     }
   }
   Ok(names)
+}
+
+/// Whether `iri` lies under `other`: it extends it past a `#` or `/` boundary,
+/// so `http://ex.org/core-ext` is not nested under `http://ex.org/core`.
+pub(crate) fn is_nested_under(iri: &str, other: &str) -> bool {
+  iri
+    .strip_prefix(other)
+    .is_some_and(|rest| other.ends_with(['#', '/']) || rest.starts_with(['#', '/']))
 }
 
 /// The `owl:Ontology` or `skos:ConceptScheme` subject not nested under
@@ -151,6 +180,85 @@ fn root(triples: &[Triple]) -> Option<String> {
   iris.sort_unstable();
   iris.dedup();
   let all = iris.clone();
-  iris.retain(|iri| !all.iter().any(|other| other != iri && iri.starts_with(other)));
+  iris.retain(|iri| !all.iter().any(|other| other != iri && is_nested_under(iri, other)));
   (iris.len() == 1).then(|| iris[0].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn relative_iris_resolve_against_the_published_document_iri() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("rel/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<#> a owl:Ontology .\n<#Thing> a owl:Class .\n",
+    )
+    .unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    let v = &discovery.published[0];
+    assert_eq!(v.namespace, "https://hub.test/ontology/rel/v1#");
+    assert!(v.triples.iter().any(|t| t.subject.to_string() == "<https://hub.test/ontology/rel/v1#Thing>"));
+  }
+
+  #[test]
+  fn a_malformed_metadata_file_skips_the_version_instead_of_defaulting_to_ontology() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("bad/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<#> a owl:Ontology .\n",
+    )
+    .unwrap();
+    fs::write(version_dir.join("metadata.ttl"), "<> a <").unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.published.is_empty());
+    assert_eq!(discovery.skipped.len(), 1);
+    assert_eq!(discovery.skipped[0].dir_name, "bad/v1");
+    assert!(discovery.skipped[0].reason.contains("metadata.ttl"));
+  }
+
+  #[test]
+  fn an_alignment_without_an_ontology_root_is_still_published() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("xw/v0.1.0");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("alignment.ttl"),
+      "@prefix void: <http://rdfs.org/ns/void#> .\n<https://example.org/x/a-b> a void:Linkset .\n",
+    )
+    .unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.skipped.is_empty(), "{:?}", discovery.skipped);
+    assert_eq!(discovery.published.len(), 1);
+    assert_eq!(discovery.published[0].namespace, "https://hub.test/ontology/xw/v0.1.0#");
+  }
+
+  #[test]
+  fn two_roots_sharing_only_a_string_prefix_are_skipped_as_having_no_single_root() {
+    let src = tempfile::tempdir().unwrap();
+    let version_dir = src.path().join("core/v1");
+    fs::create_dir_all(&version_dir).unwrap();
+    fs::write(
+      version_dir.join("ontology.ttl"),
+      "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<http://ex.org/core> a owl:Ontology .\n<http://ex.org/core-ext> a owl:Ontology .\n",
+    )
+    .unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.published.is_empty(), "{:?}", discovery.published.len());
+    assert_eq!(discovery.skipped.len(), 1);
+    assert!(discovery.skipped[0].reason.contains("no single"));
+  }
 }

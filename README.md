@@ -59,8 +59,9 @@ cargo run -- <vocabularies-dir> <out-dir> [<docs-dir>]
   discovered assets publish to.
 - `<docs-dir>` (optional): if given, also writes the catalog data tree
   described above. Set `BUILT_AT` in the environment to stamp it with a
-  real build timestamp (CI can pass the commit timestamp); it defaults to
-  `"local build"`.
+  real build timestamp (CI can pass the commit timestamp, as an
+  RFC 3339 / `xsd:dateTime` value such as `2026-10-01T12:00:00Z`); it defaults
+  to `"local build"`, in which case the catalog's `dct:modified` is omitted.
 
 To check the result serves correctly under a real Apache, see
 `scripts/serve-local.sh` and `scripts/check-conneg.sh`, and

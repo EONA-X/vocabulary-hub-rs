@@ -40,6 +40,41 @@ const SCHEMA_LOGO: [&str; 2] = ["http://schema.org/logo", "https://schema.org/lo
 const FILE_TYPE: &str = "http://publications.europa.eu/resource/authority/file-type/";
 const DEFAULT_THUMBNAIL: &str = "owl-illustration.svg";
 
+const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
+/// The IANA media-type registry, the range of `dcat:mediaType` (`dct:MediaType`).
+const IANA_MEDIA_TYPE: &str = "http://www.iana.org/assignments/media-types/";
+
+/// Whether `s` is an `xsd:dateTime` lexical form: `YYYY-MM-DDThh:mm:ss[.fff](Z|±hh:mm)`.
+fn is_xsd_date_time(s: &str) -> bool {
+  let b = s.as_bytes();
+  let digits = |r: std::ops::Range<usize>| b.get(r).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
+  let num = |r: std::ops::Range<usize>| s[r].parse::<u32>().unwrap_or(u32::MAX);
+  if !(s.is_ascii() && b.len() >= 19 && digits(0..4) && digits(5..7) && digits(8..10) && digits(11..13) && digits(14..16) && digits(17..19)) {
+    return false;
+  }
+  if (b[4], b[7], b[10], b[13], b[16]) != (b'-', b'-', b'T', b':', b':') {
+    return false;
+  }
+  if !(1..=12).contains(&num(5..7)) || !(1..=31).contains(&num(8..10)) || num(11..13) > 24 || num(14..16) > 59 || num(17..19) > 59 {
+    return false;
+  }
+  let mut rest = &s[19..];
+  if let Some(frac) = rest.strip_prefix('.') {
+    let n = frac.bytes().take_while(u8::is_ascii_digit).count();
+    if n == 0 {
+      return false;
+    }
+    rest = &frac[n..];
+  }
+  match rest.as_bytes() {
+    b"Z" => true,
+    [b'+' | b'-', h1, h2, b':', m1, m2] => {
+      [h1, h2, m1, m2].iter().all(|c| c.is_ascii_digit()) && rest[1..3].parse::<u32>().unwrap() <= 14 && rest[4..6].parse::<u32>().unwrap() <= 59
+    }
+    _ => false,
+  }
+}
+
 /// The four published formats: extension, label, media type, EU file type.
 const FORMATS: [(&str, &str, &str, &str); 4] = [
   ("ttl", "Turtle", "text/turtle", "RDF_TURTLE"),
@@ -102,27 +137,76 @@ impl AssetVersion {
   }
 }
 
+/// `v1.0.0-rc.1` as its dot-separated core segments and its pre-release suffix.
+fn split_version(v: &str) -> (Vec<String>, Option<&str>) {
+  let v = v.trim_start_matches('v');
+  let (core, pre) = v.split_once('-').map_or((v, None), |(core, pre)| (core, Some(pre)));
+  (core.split('.').map(str::to_string).collect(), pre)
+}
+
+/// Orders two `v<version>` directory names by version: dot-separated numeric
+/// segments compare as integers, anything else falls back to string order. A
+/// pre-release suffix (`-rc.1`) ranks below its release.
+fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
+  let ((a_segments, a_pre), (b_segments, b_pre)) = (split_version(a), split_version(b));
+  for (x, y) in a_segments.iter().zip(&b_segments) {
+    let ordering = match (x.parse::<u64>(), y.parse::<u64>()) {
+      (Ok(x), Ok(y)) => x.cmp(&y),
+      _ => x.cmp(y),
+    };
+    if ordering.is_ne() {
+      return ordering;
+    }
+  }
+  a_segments
+    .len()
+    .cmp(&b_segments.len())
+    .then_with(|| match (a_pre, b_pre) {
+      (None, Some(_)) => std::cmp::Ordering::Greater,
+      (Some(_), None) => std::cmp::Ordering::Less,
+      (a_pre, b_pre) => a_pre.cmp(&b_pre),
+    })
+    .then_with(|| a.cmp(b))
+}
+
 /// Writes the catalog data for the vocabularies at `vocabularies` into `out`,
 /// using `config`'s branding, IRIs and `discoverer` to tell which
 /// `<slug>/<version>` directories the hub itself publishes (and at which
 /// IRI). Returns the written paths relative to `out`.
 pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &HubConfig, discoverer: &dyn Discoverer) -> Result<Vec<PathBuf>, String> {
-  let published: HashMap<String, String> = discoverer
+  // Catalog IRIs are joined with `/`: a trailing slash would mint `//` IRIs.
+  let config = &HubConfig {
+    catalog_iri: config.catalog_iri.trim_end_matches('/').to_string(),
+    ..config.clone()
+  };
+  // The IRI each published version is served at, and its graph as the site
+  // parsed it: the catalog reuses that graph so both carry the same term IRIs.
+  let published: HashMap<String, Published> = discoverer
     .discover(vocabularies, &config.site_base)?
     .published
     .into_iter()
-    .map(|v| (v.dir_name, format!("{}{}/{}/{}", v.base, v.kind, v.slug, v.version)))
+    .map(|v| {
+      let page = format!("{}{}/{}/{}", v.base, v.kind, v.slug, v.version);
+      (v.dir_name, (page, v.triples, v.prefixes))
+    })
     .collect();
 
   // slug -> its versions, oldest first.
   let mut assets: BTreeMap<String, Vec<AssetVersion>> = BTreeMap::new();
   for dir_name in discoverer.version_dirs(vocabularies)? {
     let dir = vocabularies.join(&dir_name);
-    if !dir.join("metadata.ttl").is_file() {
+    // Like discovery: a version without a graph file is not published yet.
+    if !dir.join("metadata.ttl").is_file() || discoverer.graph_file(&dir).is_err() {
       continue;
     }
     let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
     assets.entry(v.slug.clone()).or_default().push(v);
+  }
+
+  // The discoverer promises no order, and directory names sort lexicographically
+  // (v1.10.0 before v1.9.0): order each slug's versions by version number.
+  for versions in assets.values_mut() {
+    versions.sort_by(|a, b| version_order(&a.dir, &b.dir));
   }
 
   let mut written = Vec::new();
@@ -204,12 +288,21 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   Ok(written)
 }
 
-fn read_version(dir: &Path, dir_name: &str, published: Option<String>, discoverer: &dyn Discoverer, catalog_iri: &str) -> Result<AssetVersion, String> {
+/// A published version's page IRI, triples and prefixes, as the discoverer parsed them.
+type Published = (String, Vec<Triple>, Vec<(String, String)>);
+
+fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discoverer: &dyn Discoverer, catalog_iri: &str) -> Result<AssetVersion, String> {
   let (slug, version_dir) = dir_name.split_once('/').ok_or_else(|| format!("{dir_name}: not <slug>/<version>"))?;
   let asset_iri = format!("{catalog_iri}/{slug}");
   let (meta, _) = parse_turtle(&dir.join("metadata.ttl"), &asset_iri)?;
   let graph_file = discoverer.graph_file(dir)?;
-  let (graph, prefixes) = parse_turtle(&dir.join(&graph_file), &format!("{asset_iri}/{version_dir}/"))?;
+  let (published, graph, prefixes) = match published {
+    Some((page, graph, prefixes)) => (Some(page), graph, prefixes),
+    None => {
+      let (graph, prefixes) = parse_turtle(&dir.join(&graph_file), &format!("{asset_iri}/{version_dir}/"))?;
+      (None, graph, prefixes)
+    }
+  };
 
   let subject = NamedOrBlankNode::NamedNode(NamedNode::new_unchecked(&asset_iri));
   let literal = |p: &str| objects(&meta, &subject, p).into_iter().find_map(literal_value);
@@ -312,17 +405,47 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
   g.iri(catalog, RDF_TYPE, &format!("{DCAT}Catalog"));
   g.lang(catalog, &format!("{DCT}title"), &config.catalog_title);
   g.lang(catalog, &format!("{DCT}description"), &config.catalog_description);
-  g.plain(catalog, &format!("{DCT}modified"), built_at);
+  if is_xsd_date_time(built_at) {
+    g.push(
+      catalog,
+      &format!("{DCT}modified"),
+      Literal::new_typed_literal(built_at, NamedNode::new_unchecked(format!("{XSD}dateTime"))).into(),
+    );
+  }
   // Vocabularies in slug order, then crosswalks.
   let (crosswalks, others): (Vec<_>, Vec<_>) = assets.values().filter_map(|versions| versions.last()).partition(|v| v.is_crosswalk());
   for v in others.iter().chain(&crosswalks) {
     g.iri(catalog, &format!("{DCAT}dataset"), &v.asset_iri());
   }
 
+  // Blank nodes get catalog-wide labels `m0`, `m1`, ... in asset order, so
+  // unchanged input rebuilds to identical files.
+  let mut next_blank_node = 0;
   for versions in assets.values() {
     let Some(latest) = versions.last() else { continue };
     let asset = latest.asset_iri();
-    g.triples.extend(latest.metadata.iter().cloned());
+    // Standardize the blank nodes apart: labels are only unique per file.
+    let mut fresh: HashMap<BlankNode, BlankNode> = HashMap::new();
+    let mut rename = |b: &BlankNode| {
+      fresh
+        .entry(b.clone())
+        .or_insert_with(|| {
+          next_blank_node += 1;
+          BlankNode::new_unchecked(format!("m{}", next_blank_node - 1))
+        })
+        .clone()
+    };
+    for t in &latest.metadata {
+      let subject = match &t.subject {
+        NamedOrBlankNode::BlankNode(b) => NamedOrBlankNode::BlankNode(rename(b)),
+        other => other.clone(),
+      };
+      let object = match &t.object {
+        Term::BlankNode(b) => Term::BlankNode(rename(b)),
+        other => other.clone(),
+      };
+      g.triples.push(Triple::new(subject, t.predicate.clone(), object));
+    }
     g.plain(&asset, &format!("{DCT}identifier"), &latest.slug);
     g.plain(&asset, &format!("{DCAT}version"), &latest.version);
     if let Some(ns) = &latest.namespace {
@@ -364,7 +487,7 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
         g.iri(&distribution, RDF_TYPE, &format!("{DCAT}Distribution"));
         g.lang(&distribution, &format!("{DCT}title"), &format!("{title} {} ({label})", v.version));
         g.iri(&distribution, &format!("{DCAT}downloadURL"), &format!("{docs_base}/{}", v.file(ext)));
-        g.plain(&distribution, &format!("{DCAT}mediaType"), media_type);
+        g.iri(&distribution, &format!("{DCAT}mediaType"), &format!("{IANA_MEDIA_TYPE}{media_type}"));
         g.iri(&distribution, &format!("{DCT}format"), &format!("{FILE_TYPE}{file_type}"));
       }
       previous = Some(v);
@@ -394,7 +517,8 @@ impl Graph {
 }
 
 /// The ontologies a crosswalk's `void:Linkset` reaches (`rdfs:seeAlso`), in
-/// authored order, as slugs.
+/// authored order, as slugs. A target belongs to the ontology with the longest
+/// matching namespace, so one namespace that prefixes another doesn't claim it.
 fn sides(graph: &[Triple], namespaces: &[(&str, &str)]) -> Vec<String> {
   let linksets: Vec<&NamedOrBlankNode> = graph
     .iter()
@@ -404,7 +528,10 @@ fn sides(graph: &[Triple], namespaces: &[(&str, &str)]) -> Vec<String> {
   let mut sides: Vec<String> = Vec::new();
   for t in graph.iter().filter(|t| linksets.contains(&&t.subject) && t.predicate.as_str() == RDFS_SEE_ALSO) {
     let Term::NamedNode(target) = &t.object else { continue };
-    if let Some((_, slug)) = namespaces.iter().find(|(ns, _)| target.as_str().starts_with(ns))
+    if let Some((_, slug)) = namespaces
+      .iter()
+      .filter(|(ns, _)| target.as_str().starts_with(ns))
+      .max_by_key(|(ns, _)| ns.len())
       && !sides.iter().any(|s| s == slug)
     {
       sides.push(slug.to_string());
@@ -427,7 +554,7 @@ fn roots(graph: &[Triple]) -> Vec<String> {
   iris.sort_unstable();
   iris.dedup();
   let all = iris.clone();
-  iris.retain(|iri| !all.iter().any(|other| other != iri && iri.starts_with(other)));
+  iris.retain(|iri| !all.iter().any(|other| other != iri && crate::default_discovery::is_nested_under(iri, other)));
   iris.into_iter().map(String::from).collect()
 }
 
