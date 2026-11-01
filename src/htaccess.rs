@@ -38,6 +38,9 @@ Options -MultiViews -Indexes
 </IfModule>
 <IfModule mod_headers.c>
   Header merge Vary Accept
+  # Public, credential-less linked data (W3C vocabulary publishing practice):
+  # a fixed `*` needs no `Vary: Origin`.
+  Header always set Access-Control-Allow-Origin \"*\"
 </IfModule>
 # eona-x.eu's own WordPress .htaccess denies .html/.htm by extension (its
 # webshell-upload guard); the asset-type router rewrites every HTML
@@ -137,6 +140,18 @@ mod tests {
   fn regex_metacharacters_in_the_slug_are_escaped_in_the_request_uri_guard() {
     let out = render("vocabulary-hub.example", "ontology/a+b(c)*", &["v1.0.0"]);
     assert!(out.contains(r"RewriteCond %{REQUEST_URI} !^/ontology/a\+b\(c\)\*(/|$)"), "{out}");
+  }
+
+  #[test]
+  fn every_representation_is_readable_cross_origin() {
+    let out = render("vocabulary-hub.example", "ontology/c", &["v1.0.0"]);
+    let header = "Header always set Access-Control-Allow-Origin \"*\"";
+    assert!(out.contains(header), "{out}");
+    let open = out.find("<IfModule mod_headers.c>").expect("mod_headers block");
+    let at = out.find(header).unwrap();
+    let close = open + out[open..].find("</IfModule>").expect("block end");
+    assert!(open < at && at < close, "{out}");
+    assert!(!out.contains("Access-Control-Allow-Credentials"), "{out}");
   }
 
   #[test]
