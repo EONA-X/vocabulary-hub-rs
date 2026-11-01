@@ -77,8 +77,9 @@ RewriteEngine On
     // are HTTPS-only (dev redirects plain HTTP), hence the fixed scheme.
     let _ = writeln!(
       s,
-      "\n# {slug_path}/ -> latest version of this build\nRewriteRule ^$ https://%{{HTTP_HOST}}/{}/{latest} [R=302,L]",
-      escape_substitution(slug_path)
+      "\n# {slug_path}/ -> latest version of this build\nRewriteRule ^$ https://%{{HTTP_HOST}}/{}/{} [R=302,L]",
+      escape_substitution(slug_path),
+      escape_substitution(latest)
     );
   }
   s
@@ -156,5 +157,13 @@ mod tests {
   fn substitution_backreference_characters_in_the_slug_are_escaped() {
     let out = render("vocabulary-hub.example", "ontology/a$1%2", &["v1.0.0"]);
     assert!(out.contains(r"https://%{HTTP_HOST}/ontology/a\$1\%2/v1.0.0 [R=302,L]"), "{out}");
+  }
+
+  #[test]
+  fn substitution_backreference_characters_in_the_latest_version_are_escaped() {
+    let out = render("vocabulary-hub.example", "ontology/foo", &["v9.$1", "v1.0.0%2"]);
+    assert!(out.contains(r"https://%{HTTP_HOST}/ontology/foo/v9.\$1 [R=302,L]"), "{out}");
+    let out = render("vocabulary-hub.example", "ontology/foo", &["v2.0.0%1"]);
+    assert!(out.contains(r"/ontology/foo/v2.0.0\%1 [R=302,L]"), "{out}");
   }
 }
