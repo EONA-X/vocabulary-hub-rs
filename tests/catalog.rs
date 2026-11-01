@@ -546,6 +546,33 @@ fn a_version_dir_with_metadata_but_no_graph_file_is_skipped_like_discovery_does(
 }
 
 #[test]
+fn a_version_the_catalog_cannot_read_is_skipped_and_the_rest_is_still_cataloged() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  fixture(src.path());
+  let ontology = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/bad#> a owl:Ontology .\n<https://example.org/bad#X> a owl:Class .\n";
+  write(src.path(), "a b>c/v1/metadata.ttl", &metadata("Bad slug", "1", "c_89b4bdb7", "CURRENT", ""));
+  write(src.path(), "a b>c/v1/ontology.ttl", ontology);
+  write(src.path(), "broken/v1/metadata.ttl", "<> a <");
+  write(src.path(), "broken/v1/ontology.ttl", ontology);
+  write(src.path(), "badgraph/v1/metadata.ttl", &metadata("Bad graph", "1", "c_89b4bdb7", "CURRENT", ""));
+  write(src.path(), "badgraph/v1/ontology.ttl", "<x> a <");
+
+  let result = write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer);
+
+  assert!(result.is_ok(), "expected the catalog to be written, got {result:?}");
+  let manifest = json(out.path(), "ontologies.json");
+  let slugs: Vec<&str> = manifest["ontologies"].as_array().unwrap().iter().map(|o| o["slug"].as_str().unwrap()).collect();
+  assert!(slugs.contains(&"vocab-alpha"), "{slugs:?}");
+  for bad in ["a b>c", "broken", "badgraph"] {
+    assert!(!slugs.contains(&bad), "{bad} should be skipped: {slugs:?}");
+  }
+  let ttl = fs::read(out.path().join("catalog.ttl")).unwrap();
+  for t in oxttl::TurtleParser::new().for_reader(ttl.as_slice()) {
+    t.expect("catalog.ttl parses");
+  }
+}
+
+#[test]
 fn a_missing_vocabularies_dir_is_an_error_that_leaves_the_existing_catalog_untouched() {
   let tmp = tempfile::tempdir().unwrap();
   let docs = tmp.path().join("docs");

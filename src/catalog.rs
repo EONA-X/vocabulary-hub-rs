@@ -173,6 +173,10 @@ fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
 /// using `config`'s branding, IRIs and `discoverer` to tell which
 /// `<slug>/<version>` directories the hub itself publishes (and at which
 /// IRI). Returns the written paths relative to `out`.
+///
+/// A version whose metadata or graph does not parse, or whose name is not an
+/// IRI segment, is logged and skipped like discovery skips it; a missing
+/// vocabularies directory is still an error.
 pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &HubConfig, discoverer: &dyn Discoverer) -> Result<Vec<PathBuf>, String> {
   // Catalog IRIs are joined with `/`: a trailing slash would mint `//` IRIs.
   let config = &HubConfig {
@@ -199,8 +203,13 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
     if !is_regular_file(&dir.join("metadata.ttl")) || discoverer.graph_file(&dir).is_err() {
       continue;
     }
-    let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
-    assets.entry(v.slug.clone()).or_default().push(v);
+    match read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri) {
+      Ok(v) => assets.entry(v.slug.clone()).or_default().push(v),
+      Err(reason) => {
+        eprintln!("skip    {dir_name}: {reason}");
+        continue;
+      }
+    }
   }
 
   // The discoverer promises no order, and directory names sort lexicographically
