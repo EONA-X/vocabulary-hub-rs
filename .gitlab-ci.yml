@@ -19,8 +19,12 @@ variables:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
 
+# A GitLab pipeline schedule (CI/CD > Schedules) must be created in the UI:
+# it re-runs `deny` so a new RUSTSEC advisory against an unchanged lockfile
+# is caught.
 workflow:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
@@ -60,3 +64,10 @@ test:
   stage: gates
   script:
     - cargo test --locked
+
+deny:
+  extends: .rust
+  stage: gates
+  script:
+    - cargo install cargo-deny --locked
+    - cargo deny --locked check

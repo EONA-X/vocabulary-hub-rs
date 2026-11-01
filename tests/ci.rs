@@ -49,3 +49,39 @@ fn gitlab_ci_disables_incremental_and_full_debuginfo_for_the_cached_target() {
 fn gitlab_ci_jobs_do_not_share_one_target_cache_key() {
   assert!(gitlab_ci().contains("prefix: $CI_JOB_NAME"));
 }
+
+fn cargo_git_url() -> String {
+  let cargo = fs::read_to_string("Cargo.toml").unwrap();
+  let rest = &cargo[cargo.find("git = \"").expect("git dependency") + 7..];
+  rest[..rest.find('"').unwrap()].to_string()
+}
+
+#[test]
+fn deny_toml_restricts_sources_to_crates_io_and_the_pinned_rdf_sitegen_repo() {
+  let deny = fs::read_to_string("deny.toml").unwrap();
+  for needle in [
+    "[advisories]",
+    "[licenses]",
+    "[bans]",
+    "[sources]",
+    "unknown-registry = \"deny\"",
+    "unknown-git = \"deny\"",
+  ] {
+    assert!(deny.contains(needle), "deny.toml lacks {needle}");
+  }
+  let allow_git = format!("allow-git = [\"{}\"]", cargo_git_url());
+  assert!(deny.contains(&allow_git), "deny.toml lacks {allow_git}");
+}
+
+#[test]
+fn gitlab_ci_runs_cargo_deny() {
+  let ci = gitlab_ci();
+  assert!(ci.contains("cargo deny --locked check") || ci.contains("cargo deny check"), "no cargo deny job");
+  let rules: String = ci
+    .lines()
+    .skip_while(|l| *l != "workflow:")
+    .take_while(|l| *l != "stages:")
+    .collect::<Vec<_>>()
+    .join("\n");
+  assert!(rules.contains("$CI_PIPELINE_SOURCE == \"schedule\""), "workflow rules lack schedule:\n{rules}");
+}

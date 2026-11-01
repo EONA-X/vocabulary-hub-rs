@@ -1,0 +1,42 @@
+# cargo-deny policy: advisories, licenses, bans, sources. Run by the `deny`
+# job in .gitlab-ci.yml (`cargo deny check`).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+# Known findings present in the lockfile when this gate was introduced. Each
+# must be fixed by a dependency bump (or accepted) and its entry removed.
+ignore = [
+  { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained, transitive via yew" },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained, build-time only" },
+  { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.37 DoS, pending upstream bump; follow-up" },
+  { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.37 DoS, pending upstream bump; follow-up" },
+  { id = "RUSTSEC-2026-0386", reason = "tokio AsyncFd unsound; unused here, pending cargo update -p tokio" },
+]
+
+[licenses]
+version = 2
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "Unicode-3.0",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+# The rev-pinned git dependency has no version requirement, which cargo-deny
+# counts as a wildcard; "deny" would reject the pinned repo itself.
+wildcards = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/ds-labs-org/ds-rdf-sitegen-rs.git"]
