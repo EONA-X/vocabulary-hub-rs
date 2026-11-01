@@ -187,7 +187,7 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   };
   // The IRI each published version is served at, and its graph as the site
   // parsed it: the catalog reuses that graph so both carry the same term IRIs.
-  let published: HashMap<String, Published> = discoverer
+  let mut published: HashMap<String, Published> = discoverer
     .discover(vocabularies, &config.site_base)?
     .published
     .into_iter()
@@ -201,11 +201,12 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   let mut assets: BTreeMap<String, Vec<AssetVersion>> = BTreeMap::new();
   for dir_name in discoverer.version_dirs(vocabularies)? {
     let dir = vocabularies.join(&dir_name);
+    // `version_dirs` yields each dir once; a duplicate from a custom Discoverer just re-parses.
     // Like discovery: a version without a graph file is not published yet.
     if !is_regular_file(&dir.join("metadata.ttl")) || discoverer.graph_file(&dir).is_err() {
       continue;
     }
-    match read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri) {
+    match read_version(&dir, &dir_name, published.remove(&dir_name), discoverer, &config.catalog_iri) {
       Ok(v) => assets.entry(v.slug.clone()).or_default().push(v),
       Err(reason) => {
         eprintln!("skip    {dir_name}: {reason}");
@@ -357,7 +358,7 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
       roots.first().and_then(|r| {
         graph
           .iter()
-          .find(|t| t.subject.to_string() == format!("<{r}>") && t.predicate.as_str() == OWL_VERSION_INFO)
+          .find(|t| t.predicate.as_str() == OWL_VERSION_INFO && matches!(&t.subject, NamedOrBlankNode::NamedNode(s) if s.as_str() == r.as_str()))
           .and_then(|t| literal_value(&t.object))
       })
     })
@@ -376,6 +377,12 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
     .filter(|t| t.subject == subject && !dropped.iter().any(|d| d == t.predicate.as_str()))
     .cloned()
     .collect();
+  let mut by_blank: HashMap<&BlankNode, Vec<&Triple>> = HashMap::new();
+  for t in &meta {
+    if let NamedOrBlankNode::BlankNode(b) = &t.subject {
+      by_blank.entry(b).or_default().push(t);
+    }
+  }
   let mut reached: HashSet<BlankNode> = HashSet::new();
   let mut frontier: Vec<BlankNode> = metadata
     .iter()
@@ -385,8 +392,8 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
     if !reached.insert(b.clone()) {
       continue;
     }
-    for t in meta.iter().filter(|t| t.subject == NamedOrBlankNode::BlankNode(b.clone())) {
-      metadata.push(t.clone());
+    for t in by_blank.get(&b).into_iter().flatten() {
+      metadata.push((*t).clone());
       if let Term::BlankNode(o) = &t.object {
         frontier.push(o.clone());
       }
@@ -548,13 +555,13 @@ impl Graph {
 /// authored order, as slugs. A target belongs to the ontology with the longest
 /// matching namespace, so one namespace that prefixes another doesn't claim it.
 fn sides(graph: &[Triple], namespaces: &[(&str, &str)]) -> Vec<String> {
-  let linksets: Vec<&NamedOrBlankNode> = graph
+  let linksets: HashSet<&NamedOrBlankNode> = graph
     .iter()
     .filter(|t| t.predicate.as_str() == RDF_TYPE && matches!(&t.object, Term::NamedNode(o) if o.as_str() == VOID_LINKSET))
     .map(|t| &t.subject)
     .collect();
   let mut sides: Vec<String> = Vec::new();
-  for t in graph.iter().filter(|t| linksets.contains(&&t.subject) && t.predicate.as_str() == RDFS_SEE_ALSO) {
+  for t in graph.iter().filter(|t| linksets.contains(&t.subject) && t.predicate.as_str() == RDFS_SEE_ALSO) {
     let Term::NamedNode(target) = &t.object else { continue };
     if let Some((_, slug)) = namespaces
       .iter()
@@ -605,15 +612,18 @@ fn literal_value(term: &Term) -> Option<String> {
 /// value in an array — the only shape the UI's parsers read.
 fn expanded_jsonld(triples: &[Triple]) -> Vec<u8> {
   let mut order: Vec<String> = Vec::new();
-  let mut nodes: HashMap<String, Map<String, Value>> = HashMap::new();
+  // Per node: its object plus, per key, the canonical text of the values already added.
+  type Seen = HashMap<String, HashSet<String>>;
+  let mut nodes: HashMap<String, (Map<String, Value>, Seen)> = HashMap::new();
   for t in triples {
     let id = node_id(&t.subject);
-    let node = nodes.entry(id.clone()).or_insert_with(|| {
+    if !nodes.contains_key(&id) {
       order.push(id.clone());
       let mut m = Map::new();
       m.insert("@id".into(), Value::String(id.clone()));
-      m
-    });
+      nodes.insert(id.clone(), (m, Seen::new()));
+    }
+    let (node, seen) = nodes.get_mut(&id).expect("node inserted above");
     let (key, value) = match (&t.object, t.predicate.as_str()) {
       (Term::NamedNode(o), RDF_TYPE) => ("@type".to_string(), Value::String(o.as_str().into())),
       (Term::BlankNode(o), RDF_TYPE) => ("@type".to_string(), Value::String(format!("_:{}", o.as_str()))),
@@ -632,14 +642,15 @@ fn expanded_jsonld(triples: &[Triple]) -> Vec<u8> {
       #[allow(unreachable_patterns)]
       _ => continue,
     };
-    let values = node.entry(key).or_insert_with(|| Value::Array(Vec::new()));
-    if let Value::Array(a) = values
-      && !a.contains(&value)
-    {
+    let canonical = value.to_string();
+    if !seen.entry(key.clone()).or_default().insert(canonical) {
+      continue;
+    }
+    if let Value::Array(a) = node.entry(key).or_insert_with(|| Value::Array(Vec::new())) {
       a.push(value);
     }
   }
-  let doc: Vec<Value> = order.into_iter().map(|id| Value::Object(nodes.remove(&id).unwrap())).collect();
+  let doc: Vec<Value> = order.into_iter().map(|id| Value::Object(nodes.remove(&id).unwrap().0)).collect();
   pretty(&Value::Array(doc))
 }
 
@@ -674,7 +685,9 @@ fn pretty(value: &Value) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-  use super::safe_logo;
+  use super::{expanded_jsonld, safe_logo};
+  use oxrdf::{Literal, NamedNode, Term, Triple};
+  use serde_json::{Value, json};
 
   #[test]
   fn logo_must_be_a_single_plain_file_name() {
@@ -682,5 +695,68 @@ mod tests {
     for bad in ["a/b.png", "../x.png", ".hidden", "a b.png", "a>b.svg", ""] {
       assert_eq!(safe_logo(bad), None, "{bad}");
     }
+  }
+
+  fn iri_triple(s: &str, p: &str, o: &str) -> Triple {
+    Triple::new(NamedNode::new_unchecked(s), NamedNode::new_unchecked(p), NamedNode::new_unchecked(o))
+  }
+
+  fn lit_triple(s: &str, p: &str, o: Literal) -> Triple {
+    Triple::new(NamedNode::new_unchecked(s), NamedNode::new_unchecked(p), Term::Literal(o))
+  }
+
+  #[test]
+  fn expanded_jsonld_keeps_first_seen_order_and_drops_duplicate_values() {
+    let (s, p) = ("https://example.org/s", "https://example.org/p");
+    let triples = vec![
+      iri_triple(s, p, "https://example.org/o1"),
+      iri_triple(s, p, "https://example.org/o2"),
+      iri_triple(s, p, "https://example.org/o1"),
+      lit_triple(s, p, Literal::new_simple_literal("lit")),
+      lit_triple(
+        s,
+        p,
+        Literal::new_typed_literal("lit", NamedNode::new_unchecked("http://www.w3.org/2001/XMLSchema#string")),
+      ),
+      lit_triple(s, p, Literal::new_language_tagged_literal_unchecked("lit", "en")),
+    ];
+    let doc: Value = serde_json::from_slice(&expanded_jsonld(&triples)).unwrap();
+    assert_eq!(
+      doc,
+      json!([{"@id": s, p: [
+        {"@id": "https://example.org/o1"},
+        {"@id": "https://example.org/o2"},
+        {"@value": "lit"},
+        {"@value": "lit", "@language": "en"},
+      ]}])
+    );
+  }
+
+  #[test]
+  fn expanded_jsonld_is_linear_in_values_per_property() {
+    let build = |n: usize| -> Vec<Triple> {
+      (0..n)
+        .map(|i| {
+          iri_triple(
+            "https://example.org/s",
+            "https://example.org/p",
+            &format!("https://example.org/a-long-shared-prefix/item/{i}"),
+          )
+        })
+        .collect()
+    };
+    let time = |n: usize| {
+      let triples = build(n);
+      (0..3)
+        .map(|_| {
+          let start = std::time::Instant::now();
+          let _ = expanded_jsonld(&triples);
+          start.elapsed()
+        })
+        .min()
+        .unwrap()
+    };
+    let (t2, t8) = (time(2_000), time(8_000));
+    assert!(t8 < t2 * 8, "quadratic: 2000 values took {t2:?}, 8000 took {t8:?}");
   }
 }

@@ -741,3 +741,21 @@ fn literal_values_cannot_inject_triples_into_the_catalog() {
   let inj = manifest["ontologies"].as_array().unwrap().iter().find(|o| o["slug"] == "inj").unwrap();
   assert_eq!(inj["namespace"], "https://example.org/inj#");
 }
+
+#[test]
+fn without_dcat_version_the_version_comes_from_owl_version_info() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  let meta = format!(
+    "{PREFIXES}<> a dcat:Dataset, adms:Asset ;\n  dcterms:title \"Versioned\"@en ;\n  dcat:type assettype:c_89b4bdb7 ;\n  adms:status status:CURRENT .\n"
+  );
+  write(src.path(), "ont-v/v1.0.0/metadata.ttl", &meta);
+  write(
+    src.path(),
+    "ont-v/v1.0.0/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/ont-v#> a owl:Ontology ; owl:versionInfo \"9.9.9\" .\n",
+  );
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+  let manifest = json(out.path(), "ontologies.json");
+  let entry = manifest["ontologies"].as_array().unwrap().iter().find(|o| o["slug"] == "ont-v").unwrap();
+  assert_eq!(entry["version"], "9.9.9");
+}
