@@ -23,3 +23,16 @@ oxrdfxml = "0.2"
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros"] }
 oxjsonld = "0.2.6"
+
+# Release stays quick to link for CI and Pages runs. Stripping removes function
+# names from release panic backtraces.
+[profile.release]
+strip = "symbols"
+
+# For a distributed binary only. No catch_unwind/should_panic in the repo, so
+# abort is safe. opt-level = "z" is avoided: it makes site generation ~50% slower.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

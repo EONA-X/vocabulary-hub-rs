@@ -8,7 +8,7 @@
 //!   graph (the file its `metadata.ttl` declares), JSON-LD expanded as the UI parses it.
 //! - `catalog.jsonld`, `catalog.ttl`: a DCAT catalog of the assets, with DCAT
 //!   versioning, minted under [`HubConfig::catalog_iri`].
-//! - `assets/`: logos, copied as they are.
+//! - `assets/`: logos, copied as they are (symlinks inside the checkout are ignored).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -21,7 +21,7 @@ use serde_json::{Map, Value, json};
 use crate::config::HubConfig;
 use crate::discoverer::Discoverer;
 use crate::model::ASSET_TYPES;
-use crate::turtle::parse_turtle;
+use crate::turtle::{is_regular_file, parse_turtle};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
@@ -95,9 +95,11 @@ struct AssetVersion {
   description: Option<String>,
   /// The asset type covering its `dcat:type`, e.g. `ontology`.
   kind: Option<&'static str>,
+  /// Only ever an absolute IRI (validated), else the single root ontology.
   namespace: Option<String>,
   prefix: Option<String>,
   creator: Option<String>,
+  /// Only ever a plain file name (validated by `safe_logo`).
   logo: Option<String>,
   /// The metadata triples about the asset (`<>`, resolved to the asset's
   /// catalog IRI) and the blank nodes they reach, minus what only describes
@@ -173,6 +175,10 @@ fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
 /// using `config`'s branding, IRIs and `discoverer` to tell which
 /// `<slug>/<version>` directories the hub itself publishes (and at which
 /// IRI). Returns the written paths relative to `out`.
+///
+/// A version whose metadata or graph does not parse, or whose name is not an
+/// IRI segment, is logged and skipped like discovery skips it; a missing
+/// vocabularies directory is still an error.
 pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &HubConfig, discoverer: &dyn Discoverer) -> Result<Vec<PathBuf>, String> {
   // Catalog IRIs are joined with `/`: a trailing slash would mint `//` IRIs.
   let config = &HubConfig {
@@ -181,7 +187,7 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   };
   // The IRI each published version is served at, and its graph as the site
   // parsed it: the catalog reuses that graph so both carry the same term IRIs.
-  let published: HashMap<String, Published> = discoverer
+  let mut published: HashMap<String, Published> = discoverer
     .discover(vocabularies, &config.site_base)?
     .published
     .into_iter()
@@ -195,12 +201,18 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   let mut assets: BTreeMap<String, Vec<AssetVersion>> = BTreeMap::new();
   for dir_name in discoverer.version_dirs(vocabularies)? {
     let dir = vocabularies.join(&dir_name);
+    // `version_dirs` yields each dir once; a duplicate from a custom Discoverer just re-parses.
     // Like discovery: a version without a graph file is not published yet.
-    if !dir.join("metadata.ttl").is_file() || discoverer.graph_file(&dir).is_err() {
+    if !is_regular_file(&dir.join("metadata.ttl")) || discoverer.graph_file(&dir).is_err() {
       continue;
     }
-    let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
-    assets.entry(v.slug.clone()).or_default().push(v);
+    match read_version(&dir, &dir_name, published.remove(&dir_name), discoverer, &config.catalog_iri) {
+      Ok(v) => assets.entry(v.slug.clone()).or_default().push(v),
+      Err(reason) => {
+        eprintln!("skip    {dir_name}: {reason}");
+        continue;
+      }
+    }
   }
 
   // The discoverer promises no order, and directory names sort lexicographically
@@ -278,8 +290,10 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   let assets_dir = vocabularies.join("assets");
   if assets_dir.is_dir() {
     for entry in fs::read_dir(&assets_dir).map_err(|e| format!("{}: {e}", assets_dir.display()))? {
-      let path = entry.map_err(|e| e.to_string())?.path();
-      if path.is_file() {
+      let entry = entry.map_err(|e| e.to_string())?;
+      let path = entry.path();
+      let is_file = entry.file_type().map_err(|e| format!("{}: {e}", path.display()))?.is_file();
+      if is_file {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         write(format!("assets/{name}"), &fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?)?;
       }
@@ -336,13 +350,15 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
       .find_map(|t| literal_value(&t.object))
   };
   let roots = roots(&graph);
-  let namespace = vann(VANN_URI).or_else(|| (roots.len() == 1).then(|| roots[0].clone()));
+  let namespace = vann(VANN_URI)
+    .filter(|ns| NamedNode::new(ns.as_str()).is_ok())
+    .or_else(|| (roots.len() == 1).then(|| roots[0].clone()));
   let version = literal(&format!("{DCAT}version"))
     .or_else(|| {
       roots.first().and_then(|r| {
         graph
           .iter()
-          .find(|t| t.subject.to_string() == format!("<{r}>") && t.predicate.as_str() == OWL_VERSION_INFO)
+          .find(|t| t.predicate.as_str() == OWL_VERSION_INFO && matches!(&t.subject, NamedOrBlankNode::NamedNode(s) if s.as_str() == r.as_str()))
           .and_then(|t| literal_value(&t.object))
       })
     })
@@ -361,6 +377,12 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
     .filter(|t| t.subject == subject && !dropped.iter().any(|d| d == t.predicate.as_str()))
     .cloned()
     .collect();
+  let mut by_blank: HashMap<&BlankNode, Vec<&Triple>> = HashMap::new();
+  for t in &meta {
+    if let NamedOrBlankNode::BlankNode(b) = &t.subject {
+      by_blank.entry(b).or_default().push(t);
+    }
+  }
   let mut reached: HashSet<BlankNode> = HashSet::new();
   let mut frontier: Vec<BlankNode> = metadata
     .iter()
@@ -370,8 +392,8 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
     if !reached.insert(b.clone()) {
       continue;
     }
-    for t in meta.iter().filter(|t| t.subject == NamedOrBlankNode::BlankNode(b.clone())) {
-      metadata.push(t.clone());
+    for t in by_blank.get(&b).into_iter().flatten() {
+      metadata.push((*t).clone());
       if let Term::BlankNode(o) = &t.object {
         frontier.push(o.clone());
       }
@@ -389,7 +411,7 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
     namespace,
     prefix: vann(VANN_PREFIX),
     creator,
-    logo: SCHEMA_LOGO.iter().find_map(|p| literal(p)),
+    logo: SCHEMA_LOGO.iter().find_map(|p| literal(p)).and_then(|l| safe_logo(&l)),
     metadata,
     graph,
     prefixes,
@@ -496,17 +518,30 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
   g.triples
 }
 
+/// A logo literal is used as one path segment of an IRI: accept only a plain
+/// file name (`[A-Za-z0-9._-]+`, not hidden), which needs no percent-encoding.
+fn safe_logo(s: &str) -> Option<String> {
+  let ok = !s.is_empty() && !s.starts_with('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+  ok.then(|| s.to_string())
+}
+
 #[derive(Default)]
 struct Graph {
   triples: Vec<Triple>,
 }
 
 impl Graph {
+  /// Adds the triple unless one of its IRIs is invalid, which would
+  /// otherwise be written raw and could inject triples.
   fn push(&mut self, s: &str, p: &str, o: Term) {
-    self.triples.push(Triple::new(NamedNode::new_unchecked(s), NamedNode::new_unchecked(p), o));
+    if let (Ok(s), Ok(p)) = (NamedNode::new(s), NamedNode::new(p)) {
+      self.triples.push(Triple::new(s, p, o));
+    }
   }
   fn iri(&mut self, s: &str, p: &str, o: &str) {
-    self.push(s, p, NamedNode::new_unchecked(o).into());
+    if let Ok(o) = NamedNode::new(o) {
+      self.push(s, p, o.into());
+    }
   }
   fn plain(&mut self, s: &str, p: &str, o: &str) {
     self.push(s, p, Literal::new_simple_literal(o).into());
@@ -520,13 +555,13 @@ impl Graph {
 /// authored order, as slugs. A target belongs to the ontology with the longest
 /// matching namespace, so one namespace that prefixes another doesn't claim it.
 fn sides(graph: &[Triple], namespaces: &[(&str, &str)]) -> Vec<String> {
-  let linksets: Vec<&NamedOrBlankNode> = graph
+  let linksets: HashSet<&NamedOrBlankNode> = graph
     .iter()
     .filter(|t| t.predicate.as_str() == RDF_TYPE && matches!(&t.object, Term::NamedNode(o) if o.as_str() == VOID_LINKSET))
     .map(|t| &t.subject)
     .collect();
   let mut sides: Vec<String> = Vec::new();
-  for t in graph.iter().filter(|t| linksets.contains(&&t.subject) && t.predicate.as_str() == RDFS_SEE_ALSO) {
+  for t in graph.iter().filter(|t| linksets.contains(&t.subject) && t.predicate.as_str() == RDFS_SEE_ALSO) {
     let Term::NamedNode(target) = &t.object else { continue };
     if let Some((_, slug)) = namespaces
       .iter()
@@ -577,15 +612,18 @@ fn literal_value(term: &Term) -> Option<String> {
 /// value in an array — the only shape the UI's parsers read.
 fn expanded_jsonld(triples: &[Triple]) -> Vec<u8> {
   let mut order: Vec<String> = Vec::new();
-  let mut nodes: HashMap<String, Map<String, Value>> = HashMap::new();
+  // Per node: its object plus, per key, the canonical text of the values already added.
+  type Seen = HashMap<String, HashSet<String>>;
+  let mut nodes: HashMap<String, (Map<String, Value>, Seen)> = HashMap::new();
   for t in triples {
     let id = node_id(&t.subject);
-    let node = nodes.entry(id.clone()).or_insert_with(|| {
+    if !nodes.contains_key(&id) {
       order.push(id.clone());
       let mut m = Map::new();
       m.insert("@id".into(), Value::String(id.clone()));
-      m
-    });
+      nodes.insert(id.clone(), (m, Seen::new()));
+    }
+    let (node, seen) = nodes.get_mut(&id).expect("node inserted above");
     let (key, value) = match (&t.object, t.predicate.as_str()) {
       (Term::NamedNode(o), RDF_TYPE) => ("@type".to_string(), Value::String(o.as_str().into())),
       (Term::BlankNode(o), RDF_TYPE) => ("@type".to_string(), Value::String(format!("_:{}", o.as_str()))),
@@ -604,14 +642,15 @@ fn expanded_jsonld(triples: &[Triple]) -> Vec<u8> {
       #[allow(unreachable_patterns)]
       _ => continue,
     };
-    let values = node.entry(key).or_insert_with(|| Value::Array(Vec::new()));
-    if let Value::Array(a) = values
-      && !a.contains(&value)
-    {
+    let canonical = value.to_string();
+    if !seen.entry(key.clone()).or_default().insert(canonical) {
+      continue;
+    }
+    if let Value::Array(a) = node.entry(key).or_insert_with(|| Value::Array(Vec::new())) {
       a.push(value);
     }
   }
-  let doc: Vec<Value> = order.into_iter().map(|id| Value::Object(nodes.remove(&id).unwrap())).collect();
+  let doc: Vec<Value> = order.into_iter().map(|id| Value::Object(nodes.remove(&id).unwrap().0)).collect();
   pretty(&Value::Array(doc))
 }
 
@@ -642,4 +681,82 @@ fn pretty(value: &Value) -> Vec<u8> {
   let mut bytes = serde_json::to_vec_pretty(value).expect("JSON values serialize");
   bytes.push(b'\n');
   bytes
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{expanded_jsonld, safe_logo};
+  use oxrdf::{Literal, NamedNode, Term, Triple};
+  use serde_json::{Value, json};
+
+  #[test]
+  fn logo_must_be_a_single_plain_file_name() {
+    assert_eq!(safe_logo("alpha-logo.png").as_deref(), Some("alpha-logo.png"));
+    for bad in ["a/b.png", "../x.png", ".hidden", "a b.png", "a>b.svg", ""] {
+      assert_eq!(safe_logo(bad), None, "{bad}");
+    }
+  }
+
+  fn iri_triple(s: &str, p: &str, o: &str) -> Triple {
+    Triple::new(NamedNode::new_unchecked(s), NamedNode::new_unchecked(p), NamedNode::new_unchecked(o))
+  }
+
+  fn lit_triple(s: &str, p: &str, o: Literal) -> Triple {
+    Triple::new(NamedNode::new_unchecked(s), NamedNode::new_unchecked(p), Term::Literal(o))
+  }
+
+  #[test]
+  fn expanded_jsonld_keeps_first_seen_order_and_drops_duplicate_values() {
+    let (s, p) = ("https://example.org/s", "https://example.org/p");
+    let triples = vec![
+      iri_triple(s, p, "https://example.org/o1"),
+      iri_triple(s, p, "https://example.org/o2"),
+      iri_triple(s, p, "https://example.org/o1"),
+      lit_triple(s, p, Literal::new_simple_literal("lit")),
+      lit_triple(
+        s,
+        p,
+        Literal::new_typed_literal("lit", NamedNode::new_unchecked("http://www.w3.org/2001/XMLSchema#string")),
+      ),
+      lit_triple(s, p, Literal::new_language_tagged_literal_unchecked("lit", "en")),
+    ];
+    let doc: Value = serde_json::from_slice(&expanded_jsonld(&triples)).unwrap();
+    assert_eq!(
+      doc,
+      json!([{"@id": s, p: [
+        {"@id": "https://example.org/o1"},
+        {"@id": "https://example.org/o2"},
+        {"@value": "lit"},
+        {"@value": "lit", "@language": "en"},
+      ]}])
+    );
+  }
+
+  #[test]
+  fn expanded_jsonld_is_linear_in_values_per_property() {
+    let build = |n: usize| -> Vec<Triple> {
+      (0..n)
+        .map(|i| {
+          iri_triple(
+            "https://example.org/s",
+            "https://example.org/p",
+            &format!("https://example.org/a-long-shared-prefix/item/{i}"),
+          )
+        })
+        .collect()
+    };
+    let time = |n: usize| {
+      let triples = build(n);
+      (0..3)
+        .map(|_| {
+          let start = std::time::Instant::now();
+          let _ = expanded_jsonld(&triples);
+          start.elapsed()
+        })
+        .min()
+        .unwrap()
+    };
+    let (t2, t8) = (time(2_000), time(8_000));
+    assert!(t8 < t2 * 8, "quadratic: 2000 values took {t2:?}, 8000 took {t8:?}");
+  }
 }

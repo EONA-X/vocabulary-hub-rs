@@ -546,6 +546,33 @@ fn a_version_dir_with_metadata_but_no_graph_file_is_skipped_like_discovery_does(
 }
 
 #[test]
+fn a_version_the_catalog_cannot_read_is_skipped_and_the_rest_is_still_cataloged() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  fixture(src.path());
+  let ontology = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/bad#> a owl:Ontology .\n<https://example.org/bad#X> a owl:Class .\n";
+  write(src.path(), "a b>c/v1/metadata.ttl", &metadata("Bad slug", "1", "c_89b4bdb7", "CURRENT", ""));
+  write(src.path(), "a b>c/v1/ontology.ttl", ontology);
+  write(src.path(), "broken/v1/metadata.ttl", "<> a <");
+  write(src.path(), "broken/v1/ontology.ttl", ontology);
+  write(src.path(), "badgraph/v1/metadata.ttl", &metadata("Bad graph", "1", "c_89b4bdb7", "CURRENT", ""));
+  write(src.path(), "badgraph/v1/ontology.ttl", "<x> a <");
+
+  let result = write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer);
+
+  assert!(result.is_ok(), "expected the catalog to be written, got {result:?}");
+  let manifest = json(out.path(), "ontologies.json");
+  let slugs: Vec<&str> = manifest["ontologies"].as_array().unwrap().iter().map(|o| o["slug"].as_str().unwrap()).collect();
+  assert!(slugs.contains(&"vocab-alpha"), "{slugs:?}");
+  for bad in ["a b>c", "broken", "badgraph"] {
+    assert!(!slugs.contains(&bad), "{bad} should be skipped: {slugs:?}");
+  }
+  let ttl = fs::read(out.path().join("catalog.ttl")).unwrap();
+  for t in oxttl::TurtleParser::new().for_reader(ttl.as_slice()) {
+    t.expect("catalog.ttl parses");
+  }
+}
+
+#[test]
 fn a_missing_vocabularies_dir_is_an_error_that_leaves_the_existing_catalog_untouched() {
   let tmp = tempfile::tempdir().unwrap();
   let docs = tmp.path().join("docs");
@@ -665,4 +692,70 @@ fn building_the_catalog_twice_from_unchanged_input_yields_identical_files() {
     ["catalog.ttl", "catalog.jsonld"].map(|f| fs::read_to_string(out.path().join(f)).unwrap())
   };
   assert_eq!(build(), build());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_asset_is_not_copied_into_the_published_tree() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  let outside = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  fs::write(outside.path().join("secret.txt"), "TOP SECRET").unwrap();
+  std::os::unix::fs::symlink(outside.path().join("secret.txt"), src.path().join("assets/leak.svg")).unwrap();
+
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  assert!(fs::symlink_metadata(out.path().join("assets/leak.svg")).is_err());
+  assert_eq!(fs::read_to_string(out.path().join("assets/alpha-logo.png")).unwrap(), "png");
+}
+
+#[test]
+fn literal_values_cannot_inject_triples_into_the_catalog() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  fixture(src.path());
+  let extra =
+    "<> schema:logo \"a.svg> <http://evil/q> <http://evil/r> . <z\" .\n[] vann:preferredNamespaceUri \"x> <http://evil/p> \\\"pwn\\\" . <http://evil/s\" .";
+  write(src.path(), "inj/v1/metadata.ttl", &metadata("Inj", "1", "c_89b4bdb7", "CURRENT", extra));
+  write(
+    src.path(),
+    "inj/v1/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/inj#> a owl:Ontology .\n",
+  );
+
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let ttl = fs::read(out.path().join("catalog.ttl")).unwrap();
+  for t in oxttl::TurtleParser::new().for_slice(&ttl) {
+    let t = t.expect("catalog.ttl parses");
+    for part in [t.subject.to_string(), t.predicate.to_string(), t.object.to_string()] {
+      assert!(!part.contains("http://evil/"), "injected: {part}");
+    }
+  }
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = node(&nodes, &format!("{CATALOG_IRI}/inj"));
+  assert_eq!(ids(&asset[&format!("{FOAF}thumbnail")]), [format!("{DOCS_BASE}/assets/owl-illustration.svg")]);
+  let conforms = ids(&asset[&format!("{DCT}conformsTo")]);
+  assert!(conforms.is_empty() || conforms == ["https://example.org/inj#"], "{conforms:?}");
+  let manifest = json(out.path(), "ontologies.json");
+  let inj = manifest["ontologies"].as_array().unwrap().iter().find(|o| o["slug"] == "inj").unwrap();
+  assert_eq!(inj["namespace"], "https://example.org/inj#");
+}
+
+#[test]
+fn without_dcat_version_the_version_comes_from_owl_version_info() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  let meta = format!(
+    "{PREFIXES}<> a dcat:Dataset, adms:Asset ;\n  dcterms:title \"Versioned\"@en ;\n  dcat:type assettype:c_89b4bdb7 ;\n  adms:status status:CURRENT .\n"
+  );
+  write(src.path(), "ont-v/v1.0.0/metadata.ttl", &meta);
+  write(
+    src.path(),
+    "ont-v/v1.0.0/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/ont-v#> a owl:Ontology ; owl:versionInfo \"9.9.9\" .\n",
+  );
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+  let manifest = json(out.path(), "ontologies.json");
+  let entry = manifest["ontologies"].as_array().unwrap().iter().find(|o| o["slug"] == "ont-v").unwrap();
+  assert_eq!(entry["version"], "9.9.9");
 }

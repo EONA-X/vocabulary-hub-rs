@@ -80,6 +80,12 @@ case "$vary" in
   *) ko "no 'Vary: Accept' on the negotiated response" ;;
 esac
 
+cors=$(curl -s -o /dev/null -D - -H 'Accept: text/turtle' "$url" | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)
+case "$cors" in
+  *'*'*) ok "$cors" ;;
+  *) ko "no 'Access-Control-Allow-Origin: *' on the negotiated response" ;;
+esac
+
 redirect() { # <path> <status> <location suffix pattern>
   got=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$base$1" || true)
   case "$got" in
