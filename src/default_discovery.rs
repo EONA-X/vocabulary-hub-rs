@@ -3,7 +3,8 @@
 //! under the single `default_base` given — no host-splitting, no vendoring
 //! rules. Its asset type comes from an optional `metadata.ttl`'s `dcat:type`
 //! against [`ASSET_TYPES`]; absent that (or absent `metadata.ttl` itself) it
-//! defaults to `"ontology"`.
+//! defaults to `"ontology"`. Symlinks inside the checkout (directories, graph
+//! and metadata files) are ignored, never followed.
 
 use std::fs;
 use std::path::Path;
@@ -12,7 +13,7 @@ use oxrdf::{NamedOrBlankNode, Term, Triple};
 
 use crate::discoverer::Discoverer;
 use crate::model::{ASSET_TYPES, Discovery, Skipped, Vocabulary};
-use crate::turtle::parse_turtle;
+use crate::turtle::{is_regular_file, parse_turtle};
 
 const DCAT_TYPE: &str = "http://www.w3.org/ns/dcat#type";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -108,7 +109,7 @@ impl Discoverer for DefaultDiscoverer {
   fn graph_file(&self, dir: &Path) -> Result<String, String> {
     GRAPH_FILES
       .into_iter()
-      .find(|name| dir.join(name).is_file())
+      .find(|name| is_regular_file(&dir.join(name)))
       .map(str::to_string)
       .ok_or_else(|| format!("{}: no ontology.ttl or alignment.ttl", dir.display()))
   }
@@ -119,8 +120,10 @@ impl Discoverer for DefaultDiscoverer {
 /// `metadata.ttl` that does not parse is an error, not a silent default.
 fn kind(dir: &Path, default_base: &str) -> Result<Option<&'static str>, String> {
   let metadata = dir.join("metadata.ttl");
-  if !metadata.is_file() {
-    return Ok(None);
+  match fs::symlink_metadata(&metadata) {
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    // Any other outcome (including a symlink) goes to parse_turtle, which refuses links.
+    _ => {}
   }
   let (meta, _) = parse_turtle(&metadata, default_base)?;
   let codes: Vec<&str> = meta
@@ -150,7 +153,8 @@ fn subdirs(dir: &Path) -> Result<Vec<String>, String> {
   let mut names = Vec::new();
   for entry in entries {
     let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
-    if entry.path().is_dir() {
+    let file_type = entry.file_type().map_err(|e| format!("{}: {e}", dir.display()))?;
+    if file_type.is_dir() {
       names.push(entry.file_name().to_string_lossy().into_owned());
     }
   }
@@ -260,5 +264,58 @@ mod tests {
     assert!(discovery.published.is_empty(), "{:?}", discovery.published.len());
     assert_eq!(discovery.skipped.len(), 1);
     assert!(discovery.skipped[0].reason.contains("no single"));
+  }
+
+  #[cfg(unix)]
+  const ROOT_TTL: &str = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://ex.org/o#> a owl:Ontology .\n";
+
+  #[cfg(unix)]
+  #[test]
+  fn a_symlinked_version_dir_is_not_discovered() {
+    use std::os::unix::fs::symlink;
+    let src = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir_all(outside.path().join("v1")).unwrap();
+    fs::write(outside.path().join("v1/ontology.ttl"), ROOT_TTL).unwrap();
+    fs::create_dir_all(src.path().join("evil")).unwrap();
+    symlink(outside.path().join("v1"), src.path().join("evil/v1")).unwrap();
+    symlink(outside.path(), src.path().join("evil2")).unwrap();
+
+    let dirs = DefaultDiscoverer.version_dirs(src.path()).unwrap();
+
+    assert!(!dirs.contains(&"evil/v1".to_string()), "{dirs:?}");
+    assert!(!dirs.contains(&"evil2/v1".to_string()), "{dirs:?}");
+    assert!(DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap().published.is_empty());
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn a_symlinked_graph_file_is_skipped() {
+    let src = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("ontology.ttl"), ROOT_TTL).unwrap();
+    fs::create_dir_all(src.path().join("onto/v1")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("ontology.ttl"), src.path().join("onto/v1/ontology.ttl")).unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.published.is_empty());
+    assert!(discovery.skipped.iter().any(|s| s.dir_name == "onto/v1"));
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn a_symlinked_metadata_file_skips_the_version() {
+    let src = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("metadata.ttl"), "<> a <http://ex.org/X> .\n").unwrap();
+    fs::create_dir_all(src.path().join("onto/v1")).unwrap();
+    fs::write(src.path().join("onto/v1/ontology.ttl"), ROOT_TTL).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("metadata.ttl"), src.path().join("onto/v1/metadata.ttl")).unwrap();
+
+    let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+
+    assert!(discovery.published.is_empty());
+    assert!(discovery.skipped.iter().any(|s| s.dir_name == "onto/v1"));
   }
 }

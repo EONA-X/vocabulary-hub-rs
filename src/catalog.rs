@@ -8,7 +8,7 @@
 //!   graph (the file its `metadata.ttl` declares), JSON-LD expanded as the UI parses it.
 //! - `catalog.jsonld`, `catalog.ttl`: a DCAT catalog of the assets, with DCAT
 //!   versioning, minted under [`HubConfig::catalog_iri`].
-//! - `assets/`: logos, copied as they are.
+//! - `assets/`: logos, copied as they are (symlinks inside the checkout are ignored).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -21,7 +21,7 @@ use serde_json::{Map, Value, json};
 use crate::config::HubConfig;
 use crate::discoverer::Discoverer;
 use crate::model::ASSET_TYPES;
-use crate::turtle::parse_turtle;
+use crate::turtle::{is_regular_file, parse_turtle};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
@@ -196,7 +196,7 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   for dir_name in discoverer.version_dirs(vocabularies)? {
     let dir = vocabularies.join(&dir_name);
     // Like discovery: a version without a graph file is not published yet.
-    if !dir.join("metadata.ttl").is_file() || discoverer.graph_file(&dir).is_err() {
+    if !is_regular_file(&dir.join("metadata.ttl")) || discoverer.graph_file(&dir).is_err() {
       continue;
     }
     let v = read_version(&dir, &dir_name, published.get(&dir_name).cloned(), discoverer, &config.catalog_iri)?;
@@ -278,8 +278,10 @@ pub fn write_catalog(vocabularies: &Path, out: &Path, built_at: &str, config: &H
   let assets_dir = vocabularies.join("assets");
   if assets_dir.is_dir() {
     for entry in fs::read_dir(&assets_dir).map_err(|e| format!("{}: {e}", assets_dir.display()))? {
-      let path = entry.map_err(|e| e.to_string())?.path();
-      if path.is_file() {
+      let entry = entry.map_err(|e| e.to_string())?;
+      let path = entry.path();
+      let is_file = entry.file_type().map_err(|e| format!("{}: {e}", path.display()))?.is_file();
+      if is_file {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         write(format!("assets/{name}"), &fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?)?;
       }

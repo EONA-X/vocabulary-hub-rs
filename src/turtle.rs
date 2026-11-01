@@ -12,9 +12,19 @@ use oxttl::TurtleParser;
 /// A graph and its `@prefix` table.
 pub type Parsed = (Vec<Triple>, Vec<(String, String)>);
 
+/// Whether `path` is a regular file itself, not a symlink to one (links
+/// inside a vocabularies checkout are never followed).
+pub fn is_regular_file(path: &Path) -> bool {
+  fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
+}
+
 /// Parses the Turtle file at `path`, resolving relative IRIs (including the
 /// bare `<>` a file commonly uses for "this document") against `base`.
 pub fn parse_turtle(path: &Path, base: &str) -> Result<Parsed, String> {
+  let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+  if meta.file_type().is_symlink() {
+    return Err(format!("{}: is a symlink, not read", path.display()));
+  }
   let data = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
   let mut parser = TurtleParser::new().with_base_iri(base).map_err(|e| format!("{base}: {e}"))?.for_slice(&data);
   let mut triples = Vec::new();
@@ -55,6 +65,20 @@ mod tests {
   use super::*;
 
   const BASE: &str = "https://example.test/";
+
+  #[cfg(unix)]
+  #[test]
+  fn parsing_a_symlink_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("real.ttl");
+    fs::write(&target, "<a> <b> <c> .\n").unwrap();
+    let link = dir.path().join("link.ttl");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    let err = parse_turtle(&link, BASE).unwrap_err();
+
+    assert!(err.contains("symlink"), "{err}");
+  }
 
   fn parse(ttl: &str) -> Vec<Triple> {
     let dir = tempfile::tempdir().unwrap();

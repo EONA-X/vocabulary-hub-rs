@@ -666,3 +666,19 @@ fn building_the_catalog_twice_from_unchanged_input_yields_identical_files() {
   };
   assert_eq!(build(), build());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_asset_is_not_copied_into_the_published_tree() {
+  let src = tempfile::tempdir().unwrap();
+  let out = tempfile::tempdir().unwrap();
+  let outside = tempfile::tempdir().unwrap();
+  fixture(src.path());
+  fs::write(outside.path().join("secret.txt"), "TOP SECRET").unwrap();
+  std::os::unix::fs::symlink(outside.path().join("secret.txt"), src.path().join("assets/leak.svg")).unwrap();
+
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  assert!(fs::symlink_metadata(out.path().join("assets/leak.svg")).is_err());
+  assert_eq!(fs::read_to_string(out.path().join("assets/alpha-logo.png")).unwrap(), "png");
+}
