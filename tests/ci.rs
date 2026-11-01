@@ -85,3 +85,66 @@ fn gitlab_ci_runs_cargo_deny() {
     .join("\n");
   assert!(rules.contains("$CI_PIPELINE_SOURCE == \"schedule\""), "workflow rules lack schedule:\n{rules}");
 }
+
+fn workflows() -> Vec<(String, String)> {
+  let mut out = Vec::new();
+  for entry in fs::read_dir(".github/workflows").unwrap() {
+    let path = entry.unwrap().path();
+    if path.extension().is_some_and(|e| e == "yml" || e == "yaml") {
+      out.push((path.display().to_string(), fs::read_to_string(&path).unwrap()));
+    }
+  }
+  assert!(!out.is_empty(), "no workflows found");
+  out
+}
+
+fn is_full_sha_pin(uses: &str) -> bool {
+  let Some((_, after)) = uses.rsplit_once('@') else { return false };
+  let sha: String = after.chars().take(40).collect();
+  let tail = &after[sha.len()..];
+  sha.len() == 40
+    && sha.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+    && (tail.is_empty() || tail.starts_with(char::is_whitespace) || tail.starts_with('#'))
+}
+
+#[test]
+fn every_github_action_is_pinned_to_a_full_commit_sha() {
+  for (name, text) in workflows() {
+    for line in text.lines() {
+      let t = line.trim();
+      let t = t.strip_prefix("- ").unwrap_or(t);
+      if t.starts_with("uses:") {
+        assert!(is_full_sha_pin(t), "{name}: not pinned to a commit SHA: {t}");
+      }
+    }
+  }
+}
+
+#[test]
+fn the_pages_build_uses_the_lockfile() {
+  let pages = fs::read_to_string(".github/workflows/pages.yml").unwrap();
+  let line = pages.lines().find(|l| l.contains("cargo run")).expect("cargo run line");
+  assert!(line.contains("--locked"), "{line}");
+}
+
+#[test]
+fn the_toolchain_is_pinned() {
+  let tc = fs::read_to_string("rust-toolchain.toml").unwrap();
+  let channel = tc
+    .lines()
+    .find_map(|l| l.trim().strip_prefix("channel = \""))
+    .and_then(|r| r.strip_suffix('"'))
+    .expect("channel");
+  let parts: Vec<&str> = channel.split('.').collect();
+  assert!(
+    parts.len() == 3 && parts[0] == "1" && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())),
+    "channel must be an exact 1.x.y version: {channel}"
+  );
+  assert!(tc.contains("components = [\"rustfmt\", \"clippy\"]"), "{tc}");
+}
+
+#[test]
+fn dependabot_updates_the_pinned_actions() {
+  let d = fs::read_to_string(".github/dependabot.yml").unwrap();
+  assert!(d.contains("package-ecosystem: \"github-actions\""), "{d}");
+}
