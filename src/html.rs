@@ -13,6 +13,7 @@
 //! (`…/v0.0.1#GenericClaim`) scrolls to that term. No script: the host serves
 //! flat files and nothing else.
 
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::pin;
 use std::rc::Rc;
@@ -154,6 +155,7 @@ struct TermData {
 impl PageData {
   fn build(v: &Vocabulary, config: &HubConfig, components: &dyn Components) -> PageData {
     let idx = Indices::build(&Ontology { triples: v.triples.clone() });
+    let lit_idx = LiteralIndex::build(&v.triples);
     let ns = v.namespace.as_str();
     let plain = |s: &str| vec![LiteralValue::new(s.to_string(), None, None)];
 
@@ -162,7 +164,7 @@ impl PageData {
       ("Namespace", plain(ns)),
     ];
     for (pred, heading) in [(DCT_DESCRIPTION, "Description"), (RDFS_COMMENT, "Comment")] {
-      let values = literals(&v.triples, ns, pred);
+      let values = lit_idx.get(ns, pred);
       if !values.is_empty() {
         overview.push((heading, values));
       }
@@ -185,7 +187,7 @@ impl PageData {
         notes: TERM_NOTES
           .iter()
           .filter_map(|(pred, heading)| {
-            let values = literals(&v.triples, &t, pred);
+            let values = lit_idx.get(&t, pred);
             (!values.is_empty()).then(|| components.onto_annotation(AttrValue::from(*heading), values))
           })
           .collect(),
@@ -300,29 +302,45 @@ fn term_kind(iri: &str) -> TermKind {
   }
 }
 
-/// Every value of `predicate` on `subject`, English first, then the untagged
-/// ones, then the other languages alphabetically; values sharing a language
-/// keep their source order.
-fn literals(triples: &[Triple], subject: &str, predicate: &str) -> Vec<LiteralValue> {
-  let mut values: Vec<LiteralValue> = Vec::new();
-  for t in triples {
-    let NamedOrBlankNode::NamedNode(s) = &t.subject else { continue };
-    let Term::Literal(l) = &t.object else { continue };
-    if s.as_str() != subject || t.predicate.as_str() != predicate {
-      continue;
+/// A literal's identity for deduplication: text, language, datatype.
+type LiteralKey = (String, Option<String>, Option<String>);
+
+/// Every literal value of each (subject, predicate), built in one pass over the
+/// graph. Per key: English first, then the untagged ones, then the other
+/// languages alphabetically; values sharing a language keep their source order.
+struct LiteralIndex<'a>(HashMap<(&'a str, &'a str), Vec<LiteralValue>>);
+
+impl<'a> LiteralIndex<'a> {
+  fn build(triples: &'a [Triple]) -> Self {
+    let mut map: HashMap<(&'a str, &'a str), Vec<LiteralValue>> = HashMap::new();
+    let mut seen: HashMap<(&'a str, &'a str), HashSet<LiteralKey>> = HashMap::new();
+    for t in triples {
+      let NamedOrBlankNode::NamedNode(s) = &t.subject else { continue };
+      let Term::Literal(l) = &t.object else { continue };
+      let key = (s.as_str(), t.predicate.as_str());
+      let datatype = (l.language().is_none() && l.datatype().as_str() != XSD_STRING).then(|| l.datatype().as_str().to_string());
+      let value = LiteralValue::new(l.value().to_string(), l.language().map(str::to_string), datatype);
+      if seen
+        .entry(key)
+        .or_default()
+        .insert((value.value.clone(), value.lang.clone(), value.datatype.clone()))
+      {
+        map.entry(key).or_default().push(value);
+      }
     }
-    let datatype = (l.language().is_none() && l.datatype().as_str() != XSD_STRING).then(|| l.datatype().as_str().to_string());
-    let value = LiteralValue::new(l.value().to_string(), l.language().map(str::to_string), datatype);
-    if !values.contains(&value) {
-      values.push(value);
+    for values in map.values_mut() {
+      values.sort_by_key(|v| match v.lang.as_deref() {
+        Some("en") => (0, String::new()),
+        None => (1, String::new()),
+        Some(lang) => (2, lang.to_string()),
+      });
     }
+    LiteralIndex(map)
   }
-  values.sort_by_key(|v| match v.lang.as_deref() {
-    Some("en") => (0, String::new()),
-    None => (1, String::new()),
-    Some(lang) => (2, lang.to_string()),
-  });
-  values
+
+  fn get(&self, subject: &str, predicate: &str) -> Vec<LiteralValue> {
+    self.0.get(&(subject, predicate)).cloned().unwrap_or_default()
+  }
 }
 
 /// English, else untagged — the corpus is English-first today.
@@ -398,6 +416,76 @@ mod tests {
   use crate::default_components::DefaultComponents;
   use crate::default_discovery::DefaultDiscoverer;
   use crate::discoverer::Discoverer;
+
+  #[test]
+  fn the_literal_index_returns_every_value_deduplicated_english_first_then_untagged_then_other_languages() {
+    use oxrdf::{BlankNode, Literal, NamedNode};
+    let t = NamedNode::new("http://ex.org/t").unwrap();
+    let p = NamedNode::new(RDFS_COMMENT).unwrap();
+    let lit = |l: Literal| Triple::new(t.clone(), p.clone(), l);
+    let triples = vec![
+      lit(Literal::new_language_tagged_literal("b", "fr").unwrap()),
+      lit(Literal::new_simple_literal("z")),
+      lit(Literal::new_language_tagged_literal("a", "de").unwrap()),
+      lit(Literal::new_language_tagged_literal("one", "en").unwrap()),
+      lit(Literal::new_simple_literal("z")),
+      lit(Literal::new_language_tagged_literal("two", "en").unwrap()),
+      lit(Literal::new_typed_literal(
+        "5",
+        NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
+      )),
+      Triple::new(BlankNode::default(), p.clone(), Literal::new_simple_literal("blank")),
+      Triple::new(t.clone(), p.clone(), NamedNode::new("http://ex.org/o").unwrap()),
+    ];
+
+    let idx = LiteralIndex::build(&triples);
+    let got = idx.get("http://ex.org/t", RDFS_COMMENT);
+
+    let xsd_int = Some("http://www.w3.org/2001/XMLSchema#integer".to_string());
+    let en = |s: &str| LiteralValue::new(s.to_string(), Some("en".into()), None);
+    assert_eq!(
+      got,
+      vec![
+        en("one"),
+        en("two"),
+        LiteralValue::new("z".into(), None, None),
+        LiteralValue::new("5".into(), None, xsd_int),
+        LiteralValue::new("a".into(), Some("de".into()), None),
+        LiteralValue::new("b".into(), Some("fr".into()), None),
+      ]
+    );
+    assert!(idx.get("http://ex.org/missing", RDFS_COMMENT).is_empty());
+  }
+
+  #[test]
+  fn rendering_a_page_is_linear_in_the_number_of_terms() {
+    fn time_render(n: usize) -> std::time::Duration {
+      let src = tempfile::tempdir().unwrap();
+      let version_dir = src.path().join("onto/v1");
+      fs::create_dir_all(&version_dir).unwrap();
+      let mut ttl = String::from(
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+         @prefix : <http://example.org/onto#> .\n<http://example.org/onto#> a owl:Ontology .\n",
+      );
+      for i in 0..n {
+        ttl.push_str(&format!(":T{i} a owl:Class ; rdfs:comment \"c{i}\" .\n"));
+      }
+      fs::write(version_dir.join("ontology.ttl"), ttl).unwrap();
+      let discovery = DefaultDiscoverer.discover(src.path(), "https://hub.test/").unwrap();
+      let v = &discovery.published[0];
+      (0..3)
+        .map(|_| {
+          let start = std::time::Instant::now();
+          let _ = render(v, &HubConfig::default(), &DefaultComponents);
+          start.elapsed()
+        })
+        .min()
+        .unwrap()
+    }
+    let t1000 = time_render(1_000);
+    let t4000 = time_render(4_000);
+    assert!(t4000 < t1000 * 8, "1000 terms: {t1000:?}, 4000 terms: {t4000:?}");
+  }
 
   #[test]
   fn an_ontology_iri_without_a_trailing_hash_anchors_its_hash_terms_by_local_name_and_skips_sibling_prefixes() {
