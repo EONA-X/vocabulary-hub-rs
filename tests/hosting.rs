@@ -130,3 +130,12 @@ fn check_conneg_reports_a_fail_line_for_every_check_when_the_host_is_unreachable
     "every check must report: {stdout}"
   );
 }
+
+/// The Hub UI's root rule cascades into `voc/`; the generated `assets/.htaccess` (see
+/// `htaccess::render_assets`, unit-tested there) overrides it for the fixed-name shared stylesheets.
+#[test]
+fn the_hub_ui_immutable_cache_rule_is_overridden_under_voc() {
+  let ui = fs::read_to_string("hosting/examples/hub-ui.htaccess").unwrap();
+  assert!(ui.contains(r#"<FilesMatch "\.(wasm|js|css)$">"#), "hub-ui.htaccess lost its FilesMatch rule");
+  assert!(ui.contains("immutable"), "hub-ui.htaccess no longer marks assets immutable");
+}

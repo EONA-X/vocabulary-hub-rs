@@ -29,6 +29,9 @@ AddType application/wasm .wasm
 # NOT matched here so it keeps revalidating. Overrides this host's own
 # default (seen in practice: max-age=900 on .js/.css, nothing at all on
 # .wasm).
+# This FilesMatch also cascades into voc/, where the shared stylesheets keep
+# fixed names; the generated {kind}/assets/.htaccess overrides it there with
+# Cache-Control: no-cache.
 <IfModule mod_headers.c>
   <FilesMatch "\.(wasm|js|css)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
