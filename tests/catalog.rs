@@ -709,3 +709,35 @@ fn a_symlinked_asset_is_not_copied_into_the_published_tree() {
   assert!(fs::symlink_metadata(out.path().join("assets/leak.svg")).is_err());
   assert_eq!(fs::read_to_string(out.path().join("assets/alpha-logo.png")).unwrap(), "png");
 }
+
+#[test]
+fn literal_values_cannot_inject_triples_into_the_catalog() {
+  let (src, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  fixture(src.path());
+  let extra =
+    "<> schema:logo \"a.svg> <http://evil/q> <http://evil/r> . <z\" .\n[] vann:preferredNamespaceUri \"x> <http://evil/p> \\\"pwn\\\" . <http://evil/s\" .";
+  write(src.path(), "inj/v1/metadata.ttl", &metadata("Inj", "1", "c_89b4bdb7", "CURRENT", extra));
+  write(
+    src.path(),
+    "inj/v1/ontology.ttl",
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/inj#> a owl:Ontology .\n",
+  );
+
+  write_catalog(src.path(), out.path(), BUILT_AT, &config(), &DefaultDiscoverer).unwrap();
+
+  let ttl = fs::read(out.path().join("catalog.ttl")).unwrap();
+  for t in oxttl::TurtleParser::new().for_slice(&ttl) {
+    let t = t.expect("catalog.ttl parses");
+    for part in [t.subject.to_string(), t.predicate.to_string(), t.object.to_string()] {
+      assert!(!part.contains("http://evil/"), "injected: {part}");
+    }
+  }
+  let nodes = json(out.path(), "catalog.jsonld");
+  let asset = node(&nodes, &format!("{CATALOG_IRI}/inj"));
+  assert_eq!(ids(&asset[&format!("{FOAF}thumbnail")]), [format!("{DOCS_BASE}/assets/owl-illustration.svg")]);
+  let conforms = ids(&asset[&format!("{DCT}conformsTo")]);
+  assert!(conforms.is_empty() || conforms == ["https://example.org/inj#"], "{conforms:?}");
+  let manifest = json(out.path(), "ontologies.json");
+  let inj = manifest["ontologies"].as_array().unwrap().iter().find(|o| o["slug"] == "inj").unwrap();
+  assert_eq!(inj["namespace"], "https://example.org/inj#");
+}

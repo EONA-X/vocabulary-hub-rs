@@ -95,9 +95,11 @@ struct AssetVersion {
   description: Option<String>,
   /// The asset type covering its `dcat:type`, e.g. `ontology`.
   kind: Option<&'static str>,
+  /// Only ever an absolute IRI (validated), else the single root ontology.
   namespace: Option<String>,
   prefix: Option<String>,
   creator: Option<String>,
+  /// Only ever a plain file name (validated by `safe_logo`).
   logo: Option<String>,
   /// The metadata triples about the asset (`<>`, resolved to the asset's
   /// catalog IRI) and the blank nodes they reach, minus what only describes
@@ -347,7 +349,9 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
       .find_map(|t| literal_value(&t.object))
   };
   let roots = roots(&graph);
-  let namespace = vann(VANN_URI).or_else(|| (roots.len() == 1).then(|| roots[0].clone()));
+  let namespace = vann(VANN_URI)
+    .filter(|ns| NamedNode::new(ns.as_str()).is_ok())
+    .or_else(|| (roots.len() == 1).then(|| roots[0].clone()));
   let version = literal(&format!("{DCAT}version"))
     .or_else(|| {
       roots.first().and_then(|r| {
@@ -400,7 +404,7 @@ fn read_version(dir: &Path, dir_name: &str, published: Option<Published>, discov
     namespace,
     prefix: vann(VANN_PREFIX),
     creator,
-    logo: SCHEMA_LOGO.iter().find_map(|p| literal(p)),
+    logo: SCHEMA_LOGO.iter().find_map(|p| literal(p)).and_then(|l| safe_logo(&l)),
     metadata,
     graph,
     prefixes,
@@ -507,17 +511,30 @@ fn catalog_graph(assets: &BTreeMap<String, Vec<AssetVersion>>, built_at: &str, c
   g.triples
 }
 
+/// A logo literal is used as one path segment of an IRI: accept only a plain
+/// file name (`[A-Za-z0-9._-]+`, not hidden), which needs no percent-encoding.
+fn safe_logo(s: &str) -> Option<String> {
+  let ok = !s.is_empty() && !s.starts_with('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+  ok.then(|| s.to_string())
+}
+
 #[derive(Default)]
 struct Graph {
   triples: Vec<Triple>,
 }
 
 impl Graph {
+  /// Adds the triple unless one of its IRIs is invalid, which would
+  /// otherwise be written raw and could inject triples.
   fn push(&mut self, s: &str, p: &str, o: Term) {
-    self.triples.push(Triple::new(NamedNode::new_unchecked(s), NamedNode::new_unchecked(p), o));
+    if let (Ok(s), Ok(p)) = (NamedNode::new(s), NamedNode::new(p)) {
+      self.triples.push(Triple::new(s, p, o));
+    }
   }
   fn iri(&mut self, s: &str, p: &str, o: &str) {
-    self.push(s, p, NamedNode::new_unchecked(o).into());
+    if let Ok(o) = NamedNode::new(o) {
+      self.push(s, p, o.into());
+    }
   }
   fn plain(&mut self, s: &str, p: &str, o: &str) {
     self.push(s, p, Literal::new_simple_literal(o).into());
@@ -653,4 +670,17 @@ fn pretty(value: &Value) -> Vec<u8> {
   let mut bytes = serde_json::to_vec_pretty(value).expect("JSON values serialize");
   bytes.push(b'\n');
   bytes
+}
+
+#[cfg(test)]
+mod tests {
+  use super::safe_logo;
+
+  #[test]
+  fn logo_must_be_a_single_plain_file_name() {
+    assert_eq!(safe_logo("alpha-logo.png").as_deref(), Some("alpha-logo.png"));
+    for bad in ["a/b.png", "../x.png", ".hidden", "a b.png", "a>b.svg", ""] {
+      assert_eq!(safe_logo(bad), None, "{bad}");
+    }
+  }
 }
