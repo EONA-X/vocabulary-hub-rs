@@ -13,9 +13,18 @@ variables:
   RUST_IMAGE: "rust:bookworm"
   CARGO_TERM_COLOR: always
   CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+  # Keep the cached target/ small: incremental state is never reused from a
+  # fresh checkout, and line-tables-only keeps file:line in test backtraces
+  # without 40-50 MB full-debuginfo test binaries (~26% smaller, same speed).
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
 
+# A GitLab pipeline schedule (CI/CD > Schedules) must be created in the UI:
+# it re-runs `deny` so a new RUSTSEC advisory against an unchanged lockfile
+# is caught.
 workflow:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
@@ -29,12 +38,16 @@ stages:
   image: $RUST_IMAGE
   cache:
     key:
+      # Per-job prefix: clippy and test build different artifacts and would
+      # otherwise overwrite each other's archive.
+      prefix: $CI_JOB_NAME
       files: [Cargo.lock]
     paths: [.cargo/registry, .cargo/git, target]
 
 fmt:
   extends: .rust
   stage: gates
+  cache: [] # builds nothing, no need to pull or push target/
   script:
     - rustup component add rustfmt
     - cargo fmt --check
@@ -51,3 +64,10 @@ test:
   stage: gates
   script:
     - cargo test --locked
+
+deny:
+  extends: .rust
+  stage: gates
+  script:
+    - cargo install cargo-deny --locked
+    - cargo deny --locked check
